@@ -243,6 +243,7 @@ class MyWidget(QtWidgets.QWidget):
         os.system(os.path.join(os.path.dirname(__file__), client_path)+" "+self.addr_now[0]+" "+str(self.addr_now[1])+" &")
         time.sleep(1.)
         self.connect("TCP", self.addr_now)
+        print("client_link success")
 
     def show_info(self, text):
         print("\033[31m[*]Warning: "+text+"\033[0m")
@@ -300,18 +301,18 @@ class Child(QtWidgets.QDialog):
 
 
 
-
 if __name__ == '__main__':
     if len(sys.argv) != 4:
-        print(f"[-] Usage1: {sys.argv[0]} <UDS> <UDS_Server_addr> <WindowName>\n"
-              f"[-] Usage2: {sys.argv[0]} <UDP> <TCP_Server_addr> <WindowName>\n"
-              f"[*] Example1:client.py UDS 12.socket Console-12\n"
-              f"[*] Example2:client.py UDP 192.168.11.5:6000 Console-31\n")
+        print(f"[-] Usage1: {sys.argv[0]} <TCP> <IP_Server_addr> <WindowName>\n"
+              f"[-] Usage2: {sys.argv[0]} <UDP> <IP_Server_addr> <WindowName>\n"
+              f"[*] Example:client.py UDP 192.168.11.5:6000 Console-31\n")
         print(sys.argv)
-
-    type_ = sys.argv[1]
-    name = sys.argv[3]
-    server_addr = sys.argv[2]
+        print("Now we use the default parameter: UDP 127.0.0.1:<random int(10000~60000)> default-name")
+        type_, server_addr, name = "UDP", "127.0.0.1:"+str(random.randint(10000, 60000)), "default-name"
+    else:
+        type_ = sys.argv[1]
+        server_addr = sys.argv[2]
+        name = sys.argv[3]
 
     raw_str = re.split(":", server_addr)
     assert len(raw_str) == 2
