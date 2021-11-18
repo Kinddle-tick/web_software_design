@@ -12,9 +12,7 @@ import datetime
 import sys
 from typing import FrozenSet
 from PyQt5 import QtCore, QtGui, QtWidgets
-#loc 参数
-# BROWSERLEFT = 100
-# BROWSERRIGHT = 99
+
 
 class MainWindow(QtWidgets.QWidget):
     def __init__(self, ip=None, port=None):

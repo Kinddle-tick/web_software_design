@@ -317,7 +317,8 @@ if __name__ == '__main__':
     raw_str = re.split(":", server_addr)
     assert len(raw_str) == 2
     addr = tuple([raw_str[0], int(raw_str[1])])
-    app = QtGui.QApplication([])
+
+    app = QtWidgets.QApplication([])
     w = MyWidget(ip=addr[0], port=addr[1])
     w.show()
     app.exec_()

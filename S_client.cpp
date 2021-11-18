@@ -89,11 +89,71 @@ const char * my_addr_Decimal = "127.0.0.1";
 const int my_port = 6000;
 
 #define BUFFER_SIZE 1024
-#define SER_PORT 11272
+#define SER_PORT 11274
+// 初始化 准备接收消息
+char recv_msg[BUFFER_SIZE];
+char input_msg[BUFFER_SIZE];
+int client_ID=0;
+int connfd,guifd;
 
-int main(int argc, const char * argv[])
-{
-    int connfd,guifd;
+ssize_t EventServerMsg(link_list<fd_info>* client_list) {
+    bzero(recv_msg, BUFFER_SIZE);
+    ssize_t byte_num = read(connfd, recv_msg, BUFFER_SIZE);
+    if (byte_num > 0) {
+        printf("message form server(%d):%s\n", connfd, recv_msg);
+        // 广播到所有客户端
+        for (link_list<fd_info> *client_point = client_list->next;
+             client_point != nullptr; client_point = client_point->next) {
+            printf("send message to client(%s).fd = %d\n", client_point->value->nickname, client_point->value->fd);
+            send(client_point->value->fd, recv_msg, strlen(recv_msg), 0);
+        }
+    } else if(byte_num < 0){
+        printf("receive error!\n");
+    }
+    return byte_num;
+}
+
+int EventServerQuit(link_list<fd_info>* client_list){
+    for(link_list<fd_info>* client_point = client_list->next;client_point!= nullptr;client_point=client_point->next){
+        printf("**server exit");
+        send(client_point->value->fd, recv_msg, strlen(recv_msg), 0);
+    }
+    return 0;
+}
+
+int EventNewGui(link_list<fd_info>* client_list){
+    struct sockaddr_in client_address{};
+    socklen_t address_len;
+    int client_sock_fd = accept(guifd,(struct sockaddr *)&client_address, &address_len);
+    if(client_sock_fd > 0)
+    {
+        char nickname_tmp[21]{0};
+        snprintf(nickname_tmp,20,"GUI[%d]",client_ID++);
+        auto * tmp_client = new fd_info{client_sock_fd};
+        strcpy(tmp_client->nickname,nickname_tmp);
+        client_list->append(tmp_client);
+        printf("GUI(%s) joined!\n",tmp_client->nickname);
+    }
+    return 0;
+}
+
+ssize_t EventGUIMsg(link_list<fd_info>* client_list,fd_info* client){
+    bzero(recv_msg,BUFFER_SIZE);
+    ssize_t byte_num=read(client->fd,recv_msg,BUFFER_SIZE);
+    if(byte_num >0){
+        /** region ## 收到GUI内容后的一系列处理手段 ## */
+        printf("message form socket(%s):%s\n", client->nickname, recv_msg);
+        send(connfd,recv_msg, strlen(recv_msg), 0);
+        /** endregion */
+    }
+    else if(byte_num < 0){
+        printf("recv error!");
+    }
+    return byte_num;
+}
+
+int main(int argc, const char * argv[]){
+
     struct sockaddr_in my_addr{AF_INET};
     struct sockaddr_in server_addr{};
 
@@ -138,13 +198,10 @@ int main(int argc, const char * argv[])
             return 1;
         }
     }
-    // 初始化 准备接收消息
-    char recv_msg[BUFFER_SIZE];
-    char input_msg[BUFFER_SIZE];
 
     // 准备select相关内容
     fd_set ser_fdset;
-    int max_fd=1,client_ID=0;
+    int max_fd=1;
     struct timeval mytime{};
 
     link_list<fd_info> client_list;
@@ -160,11 +217,6 @@ int main(int argc, const char * argv[])
 
             /** region #<折叠代码块># select前，将 ser_fdset 初始化 */
             FD_ZERO(&ser_fdset);
-//            //add standard input
-//            FD_SET(0,&ser_fdset);
-//            if(max_fd < 0){
-//                max_fd=0;
-//            }
 
             //add server
             FD_SET(connfd,&ser_fdset);
@@ -222,50 +274,33 @@ int main(int argc, const char * argv[])
                 if(FD_ISSET(connfd, &ser_fdset))
                 {
                     /** region ## 检查<connfd>是否存在于ser_fdset集合中,如果存在 意味着服务器发送了内容 ## */
-                    bzero(recv_msg,BUFFER_SIZE);
-                    ssize_t byte_num=read(connfd,recv_msg,BUFFER_SIZE);
-                    if(byte_num >0){
-                        printf("message form server(%d):%s\n", connfd, recv_msg);
-                        // 广播到所有客户端
-                        link_list<fd_info>* client_point_tmp = client_point;
-                        for(client_point = client_list.next;client_point!= nullptr;client_point=client_point->next){
-                            printf("send message to client(%s).fd = %d\n", client_point->value->nickname, client_point->value->fd);
-                            send(client_point->value->fd, recv_msg, strlen(recv_msg), 0);
-                        }
-                        client_point = client_point_tmp;
-
-
-                    } else if(byte_num < 0){
-                        printf("recv error!\n");
-                    } else{
+                    if(EventServerMsg(&client_list) == 0){
                         FD_CLR(connfd, &ser_fdset);
                         printf("server(%d) exit!\n",connfd);
                         // 广播到所有客户端
-                        link_list<fd_info>* client_point_tmp = client_point;
-                        for(client_point = client_list.next;client_point!= nullptr;client_point=client_point->next){
-                            printf("**server exit");
-                            send(client_point->value->fd, recv_msg, strlen(recv_msg), 0);
-                        }
-                        client_point = client_point_tmp;
-                        break;
+                        EventServerQuit(&client_list);
                     }
+
+//                    bzero(recv_msg,BUFFER_SIZE);
+//                    ssize_t byte_num=read(connfd,recv_msg,BUFFER_SIZE);
+//                    if(byte_num >0){
+//                        printf("message form server(%d):%s\n", connfd, recv_msg);
+//                        // 广播到所有客户端
+//                        link_list<fd_info>* client_point_tmp = client_point;
+//                        for(client_point = client_list.next;client_point!= nullptr;client_point=client_point->next){
+//                            printf("send message to client(%s).fd = %d\n", client_point->value->nickname, client_point->value->fd);
+//                            send(client_point->value->fd, recv_msg, strlen(recv_msg), 0);
+//                        }
+//                        client_point = client_point_tmp;
                     /** endregion */
+                }
+                else{
+                    FD_SET(connfd,&ser_fdset);
                 }
 
                 if(FD_ISSET(guifd, &ser_fdset)){
                     /** region ## 检查<guifd>是否存在于ser_fdset集合中，如果存在 意味着有GUI界面试图连接 ## */
-                    struct sockaddr_in client_address{};
-                    socklen_t address_len;
-                    int client_sock_fd = accept(guifd,(struct sockaddr *)&client_address, &address_len);
-                    if(client_sock_fd > 0)
-                    {
-                        char nickname_tmp[21]{0};
-                        snprintf(nickname_tmp,20,"GUI[%d]",client_ID++);
-                        auto * tmp_client = new fd_info{client_sock_fd};
-                        strcpy(tmp_client->nickname,nickname_tmp);
-                        client_list.append(tmp_client);
-                        printf("GUI(%s) joined!\n",tmp_client->nickname);
-                    }
+                    EventNewGui(&client_list);
                     /** endregion */
                 }
             }
@@ -273,17 +308,7 @@ int main(int argc, const char * argv[])
             /** region ## 逐个检查client列表中的套接字接口是否有信息 如果有则说明GUI发送了内容到这里等待转发 ## */
             for(client_point = client_list.next;client_point!= nullptr;client_point=client_point->next){
                 if(FD_ISSET(client_point->value->fd,&ser_fdset)){
-                    bzero(recv_msg,BUFFER_SIZE);
-                    ssize_t byte_num=read(client_point->value->fd,recv_msg,BUFFER_SIZE);
-                    if(byte_num >0){
-                        /** region ## 收到GUI内容后的一系列处理手段 ## */
-                        printf("message form socket(%s):%s\n", client_point->value->nickname, recv_msg);
-                        send(connfd,recv_msg, strlen(recv_msg), 0);
-                        /** endregion */
-                    }
-                    else if(byte_num < 0){
-                        printf("recv error!");
-                    } else{
+                    if (EventGUIMsg(&client_list,client_point->value)==0){
                         /** region ## 发现客户端连接退出后的一系列处理手段 ## */
                         FD_CLR(client_point->value->fd, &ser_fdset);
                         printf("socket(%s) exit! \n and the Procedure is exiting...\n",client_point->value->nickname);
@@ -294,6 +319,9 @@ int main(int argc, const char * argv[])
                         break;  //这里如果用break的话一个客户端退出会造成服务器也退出。
                         /** endregion */
                     }
+                }
+                else{
+                    FD_SET(client_point->value->fd,&ser_fdset);
                 }
             }
             /** endregion */
