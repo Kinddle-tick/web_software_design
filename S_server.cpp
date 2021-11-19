@@ -92,7 +92,7 @@ const int server_port = 4000;
 
 #define BUFF_SIZE 1024
 #define backlog 16
-#define SER_PORT 11274
+#define SER_PORT 11271
 char input_message[BUFF_SIZE];
 char resv_message[BUFF_SIZE];
 int client_ID = 0;
@@ -107,9 +107,9 @@ int EventRcvStdin(list<client_info>* client_list){
         return 1;
     }
 
-    for(auto client_iterator = client_list->begin();client_iterator!=client_list->end();++client_iterator){
-        printf("send message to client(%s).fd = %d\n", client_iterator->nickname,client_iterator->fd);
-        send(client_iterator->fd, input_message, strlen(input_message), 0);
+    for(auto & client_iterator : *client_list){
+        printf("send message to client(%s).fd = %d\n", client_iterator.nickname,client_iterator.fd);
+        send(client_iterator.fd, input_message, strlen(input_message), 0);
     }
     return 0;
 }
@@ -128,7 +128,7 @@ int EventNewClient(list<client_info>* client_list){
         printf("client(%s) joined!\n",tmp_client->nickname);
         delete tmp_client;
     }
-    return 0;
+    return client_sock_fd;
 }
 
 int EventClientMsg(list<client_info>* client_list, list<client_info>::iterator client){
@@ -199,49 +199,35 @@ int main(int agrc,char **argv)
 
 
     //fd_set  准备fd_set
-    fd_set ser_fdset;
+    fd_set ser_fdset{0};
     int max_fd=1;
-    struct timeval mytime{};
+    struct timeval ctl_time{2700, 0};
     printf("wait for client connnect!\n");
 
-//    link_list<client_info> client_list;
-//    link_list<client_info>* client_point;
     list<client_info> client_list;
     list<client_info>::iterator client_iterator;
 
+    FD_ZERO(&ser_fdset);
+
+    //add standard input
+    FD_SET(0,&ser_fdset);
+    if(max_fd < 0)
+    {
+        max_fd=0;
+    }
+
+    //add server
+    FD_SET(ser_sock_fd, &ser_fdset);
+    if(max_fd < ser_sock_fd)
+    {
+        max_fd = ser_sock_fd;
+    }
 
     while(true)
     {
-        mytime.tv_sec=2700;
-        mytime.tv_usec=0;
 
-        FD_ZERO(&ser_fdset); //
 
-        //add standard input
-        FD_SET(0,&ser_fdset);
-        if(max_fd < 0)
-        {
-            max_fd=0;
-        }
-
-        //add server
-        FD_SET(ser_sock_fd, &ser_fdset);
-        if(max_fd < ser_sock_fd)
-        {
-            max_fd = ser_sock_fd;
-        }
-
-        //add client 将client加入select列表中
-        for(client_iterator = client_list.begin();client_iterator!=client_list.end();++client_iterator){
-            FD_SET(client_iterator->fd,&ser_fdset);
-            if(max_fd < client_iterator->fd)
-                {
-                    max_fd = client_iterator->fd;
-                }
-        }
-
-        //select多路复用
-        int ret = select(max_fd + 1, &ser_fdset, nullptr, nullptr, &mytime);
+        int ret = select(max_fd + 1, &ser_fdset, nullptr, nullptr, &ctl_time);
 
         if(ret < 0)
         {
@@ -259,7 +245,9 @@ int main(int agrc,char **argv)
         {
             if(FD_ISSET(0,&ser_fdset)) //<标准输入>是否存在于ser_fdset集合中（也就是说，检测到输入时，做如下事情）
             {
-                EventRcvStdin(&client_list);
+                if(EventRcvStdin(&client_list)==1){
+                    break;
+                };
 //                bzero(input_message,BUFF_SIZE); // 将前n个字符串清零
 //                fgets(input_message,BUFF_SIZE,stdin);
 //                if(strcmp(input_message,"exit\n")==0){
@@ -277,7 +265,10 @@ int main(int agrc,char **argv)
 
             if(FD_ISSET(ser_sock_fd, &ser_fdset))//<server>是否存在于ser_fdset集合中,如果存在 意味着有connect请求
             {
-                EventNewClient(&client_list);
+                int client_sock_fd = EventNewClient(&client_list);
+//                if(client_sock_fd>0) {
+//                    FD_SET(client_sock_fd, &ser_fdset);
+//                }
 //                struct sockaddr_in client_address{};
 //                socklen_t address_len;
 //                int client_sock_fd = accept(ser_sock_fd, (struct sockaddr *)&client_address, &address_len);
@@ -308,7 +299,6 @@ int main(int agrc,char **argv)
                     close(client_iterator->fd);
                     client_list.erase(client_iterator++);
                     client_iterator--;
-                    continue;
                 }
 
 //                bzero(resv_message,BUFF_SIZE);
@@ -346,6 +336,9 @@ int main(int agrc,char **argv)
             }
             else{
                 FD_SET(client_iterator->fd,&ser_fdset);
+                if(max_fd < client_iterator->fd){
+                        max_fd = client_iterator->fd;
+                    }
             }
         }
     }

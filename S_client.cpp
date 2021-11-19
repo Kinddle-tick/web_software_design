@@ -90,7 +90,7 @@ const char * my_addr_Decimal = "127.0.0.1";
 const int my_port = 6000;
 
 #define BUFFER_SIZE 1024
-#define SER_PORT 11274
+#define SER_PORT 11271
 // 初始化 准备接收消息
 char recv_msg[BUFFER_SIZE];
 char input_msg[BUFFER_SIZE];
@@ -204,7 +204,7 @@ int main(int argc, const char * argv[]){
     // 准备select相关内容
     fd_set ser_fdset;
     int max_fd=1;
-    struct timeval mytime{};
+    struct timeval ctl_time{2700,0};
 
 //    link_list<fd_info> client_list;
 //    link_list<fd_info>* client_point;
@@ -214,41 +214,41 @@ int main(int argc, const char * argv[]){
     if(connect(connfd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_in)) == 0)
     {
         printf("connect server successes\n");
+
+        /** region #<折叠代码块># select前，将 ser_fdset 初始化 */
+        FD_ZERO(&ser_fdset);
+
+        //add server
+        FD_SET(connfd,&ser_fdset);
+        if(max_fd < connfd)
+        {
+            max_fd = connfd;
+        }
+
+        //add gui
+        FD_SET(guifd,&ser_fdset);
+        if(max_fd < guifd)
+        {
+            max_fd = guifd;
+        }
+
+        //add client 将client加入select列表中
+        //这里一般只会有py的gui链接进来 实际上也只会有一个 但这么写也没问题 特别是和server形式比较相似
+//        for(client_iterator = client_list.begin();client_iterator!= client_list.end();++client_iterator){
+//            FD_SET(client_iterator->fd,&ser_fdset);
+//            if(max_fd < client_iterator->fd)
+//            {
+//                max_fd = client_iterator->fd;
+//            }
+//        }
+        /** endregion */
+
         while(select_flag)
         {
-            mytime.tv_sec=2700;
-            mytime.tv_usec=0;
 
-            /** region #<折叠代码块># select前，将 ser_fdset 初始化 */
-            FD_ZERO(&ser_fdset);
-
-            //add server
-            FD_SET(connfd,&ser_fdset);
-            if(max_fd < connfd)
-            {
-                max_fd = connfd;
-            }
-
-            //add gui
-            FD_SET(guifd,&ser_fdset);
-            if(max_fd < guifd)
-            {
-                max_fd = guifd;
-            }
-
-            //add client 将client加入select列表中
-            //这里一般只会有py的gui链接进来 实际上也只会有一个 但这么写也没问题 特别是和server形式比较相似
-            for(client_iterator = client_list.begin();client_iterator!= client_list.end();++client_iterator){
-                FD_SET(client_iterator->fd,&ser_fdset);
-                if(max_fd < client_iterator->fd)
-                {
-                    max_fd = client_iterator->fd;
-                }
-            }
-            /** endregion */
 
             //select多路复用
-            int ret = select(max_fd + 1, &ser_fdset, nullptr, nullptr, &mytime);
+            int ret = select(max_fd + 1, &ser_fdset, nullptr, nullptr, &ctl_time);
 
             if(ret < 0){
                 perror("select failure");
@@ -306,6 +306,8 @@ int main(int argc, const char * argv[]){
                     /** region ## 检查<guifd>是否存在于ser_fdset集合中，如果存在 意味着有GUI界面试图连接 ## */
                     EventNewGui(&client_list);
                     /** endregion */
+                } else{
+                    FD_SET(guifd, &ser_fdset);
                 }
             }
 
@@ -326,6 +328,9 @@ int main(int argc, const char * argv[]){
                 }
                 else{
                     FD_SET(client_iterator->fd,&ser_fdset);
+                    if(max_fd < client_iterator->fd){
+                        max_fd = client_iterator->fd;
+                    }
                 }
             }
             /** endregion */
