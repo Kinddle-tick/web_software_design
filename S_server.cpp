@@ -1,85 +1,86 @@
 #include "My_console.h"
+#include <list>
 
-template<typename T>
-class link_list{
-public:
-    link_list * previous= nullptr;
-    link_list * next = nullptr;
-    T * value;
-    link_list():value(nullptr){};
-    explicit link_list(T* member):value(member){}
-
-    bool is_head(){
-        return this->value == nullptr;
-    }
-
-    void insert(T* new_member){
-        auto* tmp = new link_list(new_member);
-        tmp->next = this->next;
-        tmp->previous = this;
-        if(this->next != nullptr)
-            this->next->previous=tmp;
-        this->next = tmp;
-    }
-
-    void append(T* new_member){ //从末尾添加 实际上实现是有些许冗余的..
-        link_list* tmp = this->move(this->len() - this->index() -1);
-        tmp->insert(new_member);
-    }
-
-    void pop(bool delete_value = true){
-        if(this->next!= nullptr)
-            this->next->previous = this->previous;
-        this->previous->next = this->next;
-        if(delete_value){
-            delete value;
-        }
-        delete this;
-    }
-
-    void redirect(T* new_member){
-        this->value = new_member;
-    }
-
-    int index(){
-        int num = -1;
-        link_list* tmp = this;
-        while (!tmp->is_head()){
-            tmp = tmp->previous;
-            num++;
-        }
-        return num;
-    }
-
-    int len(){
-        int num = index();
-        link_list* tmp = this;
-        while (tmp->next != nullptr){
-            tmp = tmp->next;
-            num++;
-        }
-        return num+1;
-    }
-
-    link_list* move(int step){
-        if(step+index()<-1 || step+index()>len()){
-            return nullptr; //超界
-        }
-        link_list* tmp = this;
-        while(step){
-            if(step>0){
-                tmp = tmp->next;
-                step--;
-            }
-            else{
-                tmp = tmp->previous;
-                step++;
-            }
-        }
-        return tmp;
-    }
-
-};
+//template<typename T>
+//class link_list{
+//public:
+//    link_list * previous= nullptr;
+//    link_list * next = nullptr;
+//    T * value;
+//    link_list():value(nullptr){};
+//    explicit link_list(T* member):value(member){}
+//
+//    bool is_head(){
+//        return this->value == nullptr;
+//    }
+//
+//    void insert(T* new_member){
+//        auto* tmp = new link_list(new_member);
+//        tmp->next = this->next;
+//        tmp->previous = this;
+//        if(this->next != nullptr)
+//            this->next->previous=tmp;
+//        this->next = tmp;
+//    }
+//
+//    void append(T* new_member){ //从末尾添加 实际上实现是有些许冗余的..
+//        link_list* tmp = this->move(this->len() - this->index() -1);
+//        tmp->insert(new_member);
+//    }
+//
+//    void pop(bool delete_value = true){
+//        if(this->next!= nullptr)
+//            this->next->previous = this->previous;
+//        this->previous->next = this->next;
+//        if(delete_value){
+//            delete value;
+//        }
+//        delete this;
+//    }
+//
+//    void redirect(T* new_member){
+//        this->value = new_member;
+//    }
+//
+//    int index(){
+//        int num = -1;
+//        link_list* tmp = this;
+//        while (!tmp->is_head()){
+//            tmp = tmp->previous;
+//            num++;
+//        }
+//        return num;
+//    }
+//
+//    int len(){
+//        int num = index();
+//        link_list* tmp = this;
+//        while (tmp->next != nullptr){
+//            tmp = tmp->next;
+//            num++;
+//        }
+//        return num+1;
+//    }
+//
+//    link_list* move(int step){
+//        if(step+index()<-1 || step+index()>len()){
+//            return nullptr; //超界
+//        }
+//        link_list* tmp = this;
+//        while(step){
+//            if(step>0){
+//                tmp = tmp->next;
+//                step--;
+//            }
+//            else{
+//                tmp = tmp->previous;
+//                step++;
+//            }
+//        }
+//        return tmp;
+//    }
+//
+//};
 
 struct client_info{
     int fd;
@@ -97,22 +98,23 @@ char resv_message[BUFF_SIZE];
 int client_ID = 0;
 int ser_sock_fd = 0;
 //client_list
+using namespace std;
 
-int EventRcvStdin(link_list<client_info>* client_list){
+int EventRcvStdin(list<client_info>* client_list){
     bzero(input_message,BUFF_SIZE); // 将前n个字符串清零
     fgets(input_message,BUFF_SIZE,stdin);
     if(strcmp(input_message,"exit\n")==0){
         return 1;
     }
 
-    for(link_list<client_info>* client_point = client_list->next;client_point!= nullptr;client_point=client_point->next){
-        printf("send message to client(%s).fd = %d\n", client_point->value->nickname, client_point->value->fd);
-        send(client_point->value->fd, input_message, strlen(input_message), 0);
+    for(auto client_iterator = client_list->begin();client_iterator!=client_list->end();++client_iterator){
+        printf("send message to client(%s).fd = %d\n", client_iterator->nickname,client_iterator->fd);
+        send(client_iterator->fd, input_message, strlen(input_message), 0);
     }
     return 0;
 }
 
-int EventNewClient(link_list<client_info>* client_list){
+int EventNewClient(list<client_info>* client_list){
     struct sockaddr_in client_address{};
     socklen_t address_len;
     int client_sock_fd = accept(ser_sock_fd, (struct sockaddr *)&client_address, &address_len);
@@ -120,32 +122,33 @@ int EventNewClient(link_list<client_info>* client_list){
     {
         char nickname_tmp[21]{0};
         snprintf(nickname_tmp,20,"User[%d]",client_ID++);
-        auto * tmp_client = new client_info{client_sock_fd};
+        auto* tmp_client = new client_info{client_sock_fd};
         strcpy(tmp_client->nickname,nickname_tmp);
-        client_list->append(tmp_client);
+        client_list->push_back(*tmp_client);
         printf("client(%s) joined!\n",tmp_client->nickname);
-
+        delete tmp_client;
     }
     return 0;
 }
 
-int EventClientMsg(link_list<client_info>* client_list, client_info* client){
+int EventClientMsg(list<client_info>* client_list, list<client_info>::iterator client){
     bzero(resv_message,BUFF_SIZE);
     ssize_t byte_num=read(client->fd,resv_message,BUFF_SIZE);
     if(byte_num >0){
         printf("message form client(%s):%s\n", client->nickname, resv_message);
         // 广播到所有客户端
 
-        link_list<client_info>* client_point = client_list;
-        for(client_point = client_list->next;client_point!= nullptr;client_point=client_point->next){
-            if(client_point->value->fd != client->fd){
+//        list<client_info>::iterator client_point;
+
+        for(auto client_point = client_list->begin();client_point != client_list->end();++client_point){
+            if(client_point->fd != client->fd){
                 printf("send message to client(%s).fd=%d with %s\n",
-                       client_point->value->nickname, client_point->value->fd, resv_message);
-                send(client_point->value->fd, resv_message, strlen(resv_message), 0);
-            }else if(client_list->len()==1){
+                       client_point->nickname, client_point->fd, resv_message);
+                send(client_point->fd, resv_message, strlen(resv_message), 0);
+            }else if(client_list->size()==1){
                 printf("echo message to client(%s).fd=%d with %s\n",
-                       client_point->value->nickname, client_point->value->fd, resv_message);
-                send(client_point->value->fd, resv_message, strlen(resv_message), 0);
+                       client_point->nickname, client_point->fd, resv_message);
+                send(client_point->fd, resv_message, strlen(resv_message), 0);
             }
 
         }
@@ -164,11 +167,9 @@ int EventClientMsg(link_list<client_info>* client_list, client_info* client){
     return 0;
 }
 
+
 int main(int agrc,char **argv)
 {
-
-
-
 
     struct sockaddr_in ser_addr{};
     ser_addr.sin_family= AF_INET;    //IPV4
@@ -183,7 +184,7 @@ int main(int agrc,char **argv)
     }
 
     //bind socket  绑定
-    if(bind(ser_sock_fd, (const struct sockaddr *)&ser_addr, sizeof(ser_addr)) < 0)
+    if(::bind(ser_sock_fd, (const struct sockaddr *)&ser_addr, sizeof(ser_addr)) < 0)
     {
         perror("bind failure");
         return -1;
@@ -203,9 +204,10 @@ int main(int agrc,char **argv)
     struct timeval mytime{};
     printf("wait for client connnect!\n");
 
-    link_list<client_info> client_list;
-    link_list<client_info>* client_point;
-
+//    link_list<client_info> client_list;
+//    link_list<client_info>* client_point;
+    list<client_info> client_list;
+    list<client_info>::iterator client_iterator;
 
 
     while(true)
@@ -230,11 +232,11 @@ int main(int agrc,char **argv)
         }
 
         //add client 将client加入select列表中
-        for(client_point = client_list.next;client_point!= nullptr;client_point=client_point->next){
-            FD_SET(client_point->value->fd,&ser_fdset);
-            if(max_fd < client_point->value->fd)
+        for(client_iterator = client_list.begin();client_iterator!=client_list.end();++client_iterator){
+            FD_SET(client_iterator->fd,&ser_fdset);
+            if(max_fd < client_iterator->fd)
                 {
-                    max_fd = client_point->value->fd;
+                    max_fd = client_iterator->fd;
                 }
         }
 
@@ -268,7 +270,8 @@ int main(int agrc,char **argv)
 //                    printf("send message to client(%s).fd = %d\n", client_point->value->nickname, client_point->value->fd);
 //                    send(client_point->value->fd, input_message, strlen(input_message), 0);
 //                }
-            } else{
+            }
+            else{
                 FD_SET(0,&ser_fdset);
             }
 
@@ -289,21 +292,22 @@ int main(int agrc,char **argv)
 //
 //                }
 
-            }else{
+            }
+            else{
                 FD_SET(ser_sock_fd,&ser_fdset);
             }
 
         }
 
         //deal with the message
-        for(client_point = client_list.next;client_point!= nullptr;client_point=client_point->next){
-            if(FD_ISSET(client_point->value->fd,&ser_fdset)){
-                if(EventClientMsg(&client_list,client_point->value)==-1){
-                    FD_CLR(client_point->value->fd, &ser_fdset);
-                    printf("client(%s) exit!\n",client_point->value->nickname);
-                    close(client_point->value->fd);
-                    client_point = client_point->previous;
-                    client_point->next->pop();
+        for(client_iterator = client_list.begin();client_iterator!= client_list.end();++client_iterator){
+            if(FD_ISSET(client_iterator->fd,&ser_fdset)){
+                if(EventClientMsg(&client_list,client_iterator)==-1){
+                    FD_CLR(client_iterator->fd, &ser_fdset);
+                    printf("client(%s) exit!\n",client_iterator->nickname);
+                    close(client_iterator->fd);
+                    client_list.erase(client_iterator++);
+                    client_iterator--;
                     continue;
                 }
 
@@ -341,7 +345,7 @@ int main(int agrc,char **argv)
 //                }
             }
             else{
-                FD_SET(client_point->value->fd,&ser_fdset);
+                FD_SET(client_iterator->fd,&ser_fdset);
             }
         }
     }
