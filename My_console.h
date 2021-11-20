@@ -13,8 +13,32 @@
 #include <iostream>
 #include <string>
 #include <fstream>
+#include <random>
+
+#define PROTO_MSG  0
+#define PROTO_CHAP 1
+#define PROTO_FILE 2
 
 typedef int SOCKET_ID;
+#define HEADER_SIZE 20
+#define BUFFER_SIZE 1004
+#define SER_PORT 11280
+union header{
+    uint8_t chr[HEADER_SIZE]={0};
+    uint8_t proto;
+    struct {
+        uint8_t proto;
+        uint8_t zero[HEADER_SIZE - 1];
+    }base_proto;
+    struct {
+        uint8_t proto;
+        uint8_t one_data_size;
+        uint8_t zero[2];
+        uint32_t data_length;
+    }chap_proto;
+};
+
+
 
 class Base_console {
 protected:
