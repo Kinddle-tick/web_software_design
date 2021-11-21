@@ -3,12 +3,14 @@
 
 struct fd_info{
     int fd;
-    char nickname[21];
+    USER_NAME nickname;
 };
 
-const char * my_addr_Decimal = "127.0.0.1";
-const int my_port = 6000;
+//const char * my_addr_Decimal = "127.0.0.1";
+//const int my_port = 6000;
 
+const char* user_name = "default";
+unsigned int password = 12345;
 
 // 初始化 准备接收消息
 
@@ -18,7 +20,7 @@ using namespace std;
 list<fd_info>* gui_client_list;
 
 //declare
-unsigned int ActionCHAPReply(char*);
+unsigned int ActionCHAPResponse(const char*);
 
 ssize_t EventServerMsg() {
     char receive_message[HEADER_SIZE + BUFFER_SIZE];
@@ -27,7 +29,7 @@ ssize_t EventServerMsg() {
     if (byte_num > 0) {
         header packet_header{};
         memcpy(&packet_header, receive_message, HEADER_SIZE);
-        unsigned int answer;
+        unsigned int answer;//just for debug
         switch (packet_header.proto) {
             case PROTO_MSG:
                 printf("message form server(%d):%s\n", conn_client_fd, receive_message + HEADER_SIZE);
@@ -38,18 +40,30 @@ ssize_t EventServerMsg() {
                 }
                 break;
             case PROTO_CHAP:
-                answer=ActionCHAPReply(receive_message);
-                printf("CHAP answer is %u\n",answer);
-                sprintf(receive_message+HEADER_SIZE,"the CHAP answer is %d %c",answer,0);
-                for(auto & client_point : *gui_client_list){
-
-                    send(client_point.fd, receive_message+HEADER_SIZE, strlen(receive_message+HEADER_SIZE)+1, 0);
+                switch (packet_header.chap_proto.code) {
+                    case CHAP_CODE_CHALLENGE:
+                        answer= ActionCHAPResponse(receive_message);
+//                        printf("CHAP answer is %u\n",answer);
+//                        sprintf(receive_message+HEADER_SIZE,"the CHAP answer is %d %c",answer,0);
+//                        for(auto & client_point : *gui_client_list){
+//                            printf("sending-- CHAP answer is %u\n",answer);
+//                            send(client_point.fd, receive_message+HEADER_SIZE, strlen(receive_message+HEADER_SIZE)+1, 0);
+//                        }
+                        break;
+                    case CHAP_CODE_SUCCESS:
+                        printf("CHAP success\n");
+                        break;
+                    case CHAP_CODE_FAILURE:
+                        printf("CHAP failure\n");
+                        break;
+                    default:
+                        printf("Invalid CHAP_CODE\n");
                 }
                 break;
             case PROTO_FILE:
                 break;
             default:
-                printf("Unknown proto,drop the packet...");
+                printf("Invalid proto,drop the packet...");
         }
 
     } else if(byte_num < 0){
@@ -84,7 +98,7 @@ int EventNewGui(){
     return 0;
 }
 
-ssize_t EventGUIMsg(list<fd_info>::iterator client){
+ssize_t EventGUIMsg(fd_info* client){
     char recv_msg[HEADER_SIZE+BUFFER_SIZE];
     bzero(recv_msg,HEADER_SIZE+BUFFER_SIZE);
     ssize_t byte_num=read(client->fd,recv_msg+HEADER_SIZE,BUFFER_SIZE);
@@ -121,11 +135,9 @@ int EventStdinMsg(){
     /** endregion */
 }
 
-unsigned int ActionCHAPReply(char* packet_total){
-    header packet_header;
-    memcpy(&packet_header,packet_total,HEADER_SIZE);
-    int one_data_size = packet_header.chap_proto.one_data_size;
-    printf("one data size:%d\n",one_data_size);
+unsigned int ActionCHAPResponse(const char* packet_total){
+    auto* packet_header=(header*)packet_total;
+    int one_data_size = packet_header->chap_proto.one_data_size;
     uint answer = 0;
     union num{
         int32_t int32;
@@ -133,21 +145,29 @@ unsigned int ActionCHAPReply(char* packet_total){
         uint16_t uint16;
         uint8_t uint8;
     };
-    for(int i = 0;i<packet_header.chap_proto.data_length;i++){
-        num tmpnum;
-        memcpy(&tmpnum,packet_total+HEADER_SIZE+i*(1<<one_data_size),1<<one_data_size);
-        answer += one_data_size==0 ? tmpnum.uint8:0;
-        answer += one_data_size==1 ? ntohs(tmpnum.uint16):0;
-        answer += one_data_size==2 ? ntohl(tmpnum.uint32):0;
-        printf("%u\n",answer);
+    for(int i = 0;i<packet_header->chap_proto.data_length;i++){
+        num tmp_num{};
+        memcpy(&tmp_num, packet_total + HEADER_SIZE + i * (1 << one_data_size), 1 << one_data_size);
+        answer += one_data_size==0 ? tmp_num.uint8 : 0;
+        answer += one_data_size==1 ? ntohs(tmp_num.uint16) : 0;
+        answer += one_data_size==2 ? ntohl(tmp_num.uint32) : 0;
     }
 
-    if(one_data_size==2){
-        return answer;
-    } else{
-        return answer % (1<<(8*(1<<one_data_size)));
-    }
+    char send_packet_total[HEADER_SIZE+BUFFER_SIZE];
+    auto* send_packet_header = (header*)send_packet_total;
+    auto* send_packet_data=(data*)(send_packet_total+HEADER_SIZE);
+    memcpy(send_packet_header,packet_header,HEADER_SIZE);
+    send_packet_header->chap_proto.code=CHAP_CODE_RESPONSE;
+    strcpy(send_packet_data->chap_response.username,user_name);
+    send_packet_data->chap_response.answer = htonl(answer^password);
+//    cout<<"offsetof(data,chap_response.other):"<<offsetof(data,chap_response.other)<<endl;
+//    cout<<"send_packet_data->chap_response.answer:"<<send_packet_data->chap_response.answer<<endl;
+    send(conn_client_fd,send_packet_total, HEADER_SIZE+offsetof(data,chap_response.other)+1,0);
+    return answer;
 };
+
+
+
 
 int main(int argc, const char * argv[]){
 
@@ -304,7 +324,7 @@ int main(int argc, const char * argv[]){
             /** region ## 逐个检查client列表中的套接字接口是否有信息 如果有则说明GUI发送了内容到这里等待转发 ## */
             for(client_iterator = gui_client_list->begin(); client_iterator != gui_client_list->end(); ++client_iterator){
                 if(FD_ISSET(client_iterator->fd,&ser_fdset)){
-                    if (EventGUIMsg(client_iterator)==0){
+                    if (EventGUIMsg(&*client_iterator)==0){
                         /** region ## 发现客户端连接退出后的一系列处理手段 ## */
                         FD_CLR(client_iterator->fd, &ser_fdset);
                         close(client_iterator->fd);

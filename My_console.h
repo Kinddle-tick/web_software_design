@@ -19,10 +19,17 @@
 #define PROTO_CHAP 1
 #define PROTO_FILE 2
 
+//1、Challenge；2、Response；3、Success；4、Failure。
+#define CHAP_CODE_CHALLENGE 1
+#define CHAP_CODE_RESPONSE 2
+#define CHAP_CODE_SUCCESS 3
+#define CHAP_CODE_FAILURE 4
+
 typedef int SOCKET_ID;
+typedef char USER_NAME[30];
 #define HEADER_SIZE 20
 #define BUFFER_SIZE 1004
-#define SER_PORT 11280
+#define SER_PORT 11284
 union header{
     uint8_t chr[HEADER_SIZE]={0};
     uint8_t proto;
@@ -33,11 +40,20 @@ union header{
     struct {
         uint8_t proto;
         uint8_t one_data_size;
-        uint8_t zero[2];
+        uint8_t code;
+        uint8_t zero;
         uint32_t data_length;
+        uint32_t sequence;
     }chap_proto;
 };
 
+union data{
+    struct {
+        USER_NAME username;
+        uint32_t answer;
+        char other;
+    }chap_response;
+};
 
 
 class Base_console {
