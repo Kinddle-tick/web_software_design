@@ -15,6 +15,10 @@
 #include <fstream>
 #include <random>
 
+#include<sys/stat.h>
+#include<fcntl.h>
+#include<cerrno>
+
 #define PROTO_MSG  0
 #define PROTO_CHAP 1
 #define PROTO_FILE 2

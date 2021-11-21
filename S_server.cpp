@@ -16,13 +16,17 @@ struct chap_session{
     uint32_t answer;
 };
 #define backlog 16
+#define DIR_LENGTH 30 //请注意根据文件夹的名称更改此数字
+#define USERNAME_LENGTH sizeof(USER_NAME)
 
 using namespace std;
-int client_ID = 0;
+//int client_ID = 0;
 int conn_server_fd = 0;
 list<client_info>* client_list;
 list<user_info>* user_list;
 list<chap_session>* chap_list;
+
+const char server_data_dir[DIR_LENGTH] = "server_data/";
 
 //declare
 unsigned int ActionCHAPChallenge(client_info*);
@@ -53,7 +57,7 @@ int EventNewClient(){
     if(client_sock_fd > 0)
     {
         char nickname_tmp[21]{0};
-        snprintf(nickname_tmp,20,"User[%d]",client_ID++);
+        snprintf(nickname_tmp,20,"User[unknown]");
         auto* tmp_client = new client_info{client_sock_fd,0,clock()};
         strcpy(tmp_client->nickname,nickname_tmp);
         client_list->push_back(*tmp_client);
@@ -216,7 +220,6 @@ unsigned int ActionCHAPJustice(const char* receive_packet_total,client_info* cli
     return 1;
 }
 
-
 clock_t time_ms(clock_t a,clock_t b){
     if(a-b >0){
         return (a-b)/CLOCKS_PER_SEC;
@@ -225,8 +228,49 @@ clock_t time_ms(clock_t a,clock_t b){
     }
 }
 
-int main(int agrc,char **argv)
-{
+int main(int agrc,char **argv){
+    char main_general_buffer[1024]={0};
+    client_list = new list<client_info>;
+    chap_list = new list<chap_session>;
+    user_list = new list<user_info>;
+
+    mkdir(server_data_dir,S_IRWXU);
+
+    //region 读取文件夹下user_sheet.csv 初始化用户列表
+    char user_sheet_path[DIR_LENGTH+20];
+    strcpy(user_sheet_path,server_data_dir);
+    strcat(user_sheet_path,"user_sheet.csv");
+    ifstream user_sheet_istream(user_sheet_path);
+    string line;
+    user_info tmp_user{};
+    while(getline(user_sheet_istream,line)){
+        cout<<"data<< "<<line<<endl;
+        string::iterator chr;
+        int num_start=0,num_end=0;
+        for(chr=line.begin();chr!=line.end();++chr){
+            num_end++;
+            if(*chr == ','){
+                *chr=0;
+                num_start=num_end;
+            }
+        }
+
+        string num_str = line.substr(num_start,num_end);
+        tmp_user.password=stoi(num_str);
+        if(strlen(line.c_str())>USERNAME_LENGTH){
+            printf("name:'%s' is too long,drop it",line.c_str());
+        }
+        strcpy(tmp_user.user_name,line.c_str());
+        user_list->push_back(tmp_user);
+    }
+    if(user_list->empty()){
+        printf("Warning: using default user_list...");
+        user_list->push_back( user_info{.user_name="default",.password=12345});
+    }
+    user_sheet_istream.close();
+    //endregion
+
+    //region 一些老生常谈的socket的初始化操作
     struct sockaddr_in ser_addr{};
     ser_addr.sin_family= AF_INET;    //IPV4
     ser_addr.sin_port = htons(SER_PORT);
@@ -252,18 +296,14 @@ int main(int agrc,char **argv)
         perror("listen failure");
         return -1;
     }
+    //endregion
 
-
+    //region fd_set的初始化操作等
     //fd_set  准备fd_set
     fd_set ser_fd_set{0};
     int max_fd=1;
     bool select_flag = true,stdin_flag= true;
     struct timeval ctl_time{2700, 0};
-
-    client_list = new list<client_info>;
-    user_list = new list<user_info>;
-    chap_list = new list<chap_session>;
-    user_list->push_back( user_info{.user_name="default",.password=12345});
     //add standard input
     FD_SET(0,&ser_fd_set);
     //add server
@@ -272,8 +312,9 @@ int main(int agrc,char **argv)
     {
         max_fd = conn_server_fd;
     }
+    //endregion
 
-    printf("wait for client connnect!\n");
+    printf("Waiting for connection!\n");
     while(select_flag)
     {
         int ret = select(max_fd + 1, &ser_fd_set, nullptr, nullptr, &ctl_time);
@@ -296,7 +337,6 @@ int main(int agrc,char **argv)
 
                     case 1:{
                         select_flag = false;
-                        break;
                     }
                     case 2:{
                         FD_CLR(0,&ser_fd_set);
@@ -338,9 +378,23 @@ int main(int agrc,char **argv)
         }
     }
 
-    printf("exiting...");
+    printf("exiting...\n");
     close(conn_server_fd);
     client_list->clear();
+
+    //region 存储用户数据
+    int user_sheet_fd = open(user_sheet_path,O_RDWR|O_TRUNC);
+    if(user_sheet_fd<0){
+        perror("open failed");
+    }
+    for(auto & user_iter : *user_list){
+        sprintf(main_general_buffer,"%s,%d\n",user_iter.user_name,user_iter.password);
+        write(user_sheet_fd,main_general_buffer, strlen(main_general_buffer));
+        printf("write-> %s",main_general_buffer);
+    }
+    close(user_sheet_fd);
+    //endregion
+
     delete client_list;
     delete chap_list;
     delete user_list;

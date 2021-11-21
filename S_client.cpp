@@ -14,7 +14,7 @@ unsigned int password = 12345;
 
 // 初始化 准备接收消息
 
-int client_ID=0;
+//int client_ID=0;
 int conn_client_fd,gui_server_fd;
 using namespace std;
 list<fd_info>* gui_client_list;
@@ -89,7 +89,7 @@ int EventNewGui(){
     if(client_sock_fd > 0)
     {
         char nickname_tmp[21]{0};
-        snprintf(nickname_tmp,20,"GUI[%d]",client_ID++);
+        snprintf(nickname_tmp,20,"GUI[unknown]");
         auto * tmp_client = new fd_info{client_sock_fd};
         strcpy(tmp_client->nickname,nickname_tmp);
         gui_client_list->push_back(*tmp_client);
