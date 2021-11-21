@@ -42,7 +42,7 @@ ssize_t EventServerMsg() {
             case PROTO_CHAP:
                 switch (packet_header.chap_proto.code) {
                     case CHAP_CODE_CHALLENGE:
-                        answer= ActionCHAPResponse(receive_message);
+                        ActionCHAPResponse(receive_message);
 //                        printf("CHAP answer is %u\n",answer);
 //                        sprintf(receive_message+HEADER_SIZE,"the CHAP answer is %d %c",answer,0);
 //                        for(auto & client_point : *gui_client_list){
@@ -158,10 +158,9 @@ unsigned int ActionCHAPResponse(const char* packet_total){
     auto* send_packet_data=(data*)(send_packet_total+HEADER_SIZE);
     memcpy(send_packet_header,packet_header,HEADER_SIZE);
     send_packet_header->chap_proto.code=CHAP_CODE_RESPONSE;
+    send_packet_header->chap_proto.sequence+=1;
     strcpy(send_packet_data->chap_response.username,user_name);
     send_packet_data->chap_response.answer = htonl(answer^password);
-//    cout<<"offsetof(data,chap_response.other):"<<offsetof(data,chap_response.other)<<endl;
-//    cout<<"send_packet_data->chap_response.answer:"<<send_packet_data->chap_response.answer<<endl;
     send(conn_client_fd,send_packet_total, HEADER_SIZE+offsetof(data,chap_response.other)+1,0);
     return answer;
 };

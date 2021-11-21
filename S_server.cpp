@@ -11,8 +11,8 @@ struct user_info{
     USER_NAME user_name;
     unsigned int password;
 };
-struct CHAP_waiting{
-    uint32_t id;
+struct chap_session{
+    uint32_t sequence;
     uint32_t answer;
 };
 #define backlog 16
@@ -22,10 +22,8 @@ int client_ID = 0;
 int conn_server_fd = 0;
 list<client_info>* client_list;
 list<user_info>* user_list;
-list<CHAP_waiting>* chap_list;
+list<chap_session>* chap_list;
 
-uint32_t debug_answer;
-uint32_t debug_password=12345;
 //declare
 unsigned int ActionCHAPChallenge(client_info*);
 unsigned int ActionCHAPJustice(const char*,client_info*);
@@ -122,23 +120,27 @@ unsigned int ActionCHAPChallenge(client_info* client){
     uint8_t  one_data_size = rand() % 3; // 2**one_data_size arc4random()是一个非常不错的替代解法 但是这边还是用了rand先
     uint32_t data_length = 10 + rand()%(BUFFER_SIZE/(1<<one_data_size )- 10);//至少要有10个数据 （10～40字节）
 
-    uint32_t id ;
-    while (1){
-        id = (uint32_t)rand();
-        for(auto chap:*chap_list){
-            if(chap.id==id){
-
+    auto sequence = (uint32_t)(rand() % ((0U - 1)/4 - chap_list->size()));
+    auto chap_iterator = chap_list->begin();
+    if(!chap_list->empty()){
+        for(chap_iterator = chap_list->begin();chap_iterator!=chap_list->end();++chap_iterator){
+            if(sequence >= (chap_iterator->sequence)/4){
+                sequence+=1;
+            } else{
+                sequence*=4;
+                break;
             }
         }
-        break;
+    } else{
+        sequence*=4;
     }
+
     auto* packet_header=(header *)packet_total;
     packet_header->chap_proto.proto = PROTO_CHAP;
     packet_header->chap_proto.code = CHAP_CODE_CHALLENGE;
     packet_header->chap_proto.one_data_size=one_data_size;
     packet_header->chap_proto.data_length=data_length;
-    packet_header->chap_proto.sequence = id;
-//    memcpy(packet_total, packet_header.chr, sizeof(header));
+    packet_header->chap_proto.sequence = sequence;
     union num{
         int32_t int32;
         uint32_t uint32;
@@ -174,29 +176,44 @@ unsigned int ActionCHAPChallenge(client_info* client){
         answer += one_data_size==1 ? ntohs(tmpnum.uint16):0;
         answer += one_data_size==2 ? ntohl(tmpnum.uint32):0;
     }
-    debug_answer = answer;
     send(client->fd, packet_total, HEADER_SIZE + data_length * (1<<one_data_size), 0);
     client->state=1;
-    chap_list->push_back(CHAP_waiting{.id=id,.answer=answer});
+    chap_list->insert(chap_iterator, chap_session{.sequence=sequence,.answer=answer});
     return answer;
 }
 
 unsigned int ActionCHAPJustice(const char* receive_packet_total,client_info* client){
+    auto* receive_packet_header = (header *)(receive_packet_total);
     auto* receive_packet_data = (data *)(receive_packet_total+HEADER_SIZE);
     char* send_packet_total[HEADER_SIZE];
     auto* send_packet_header = (header*)send_packet_total;
     memcpy(send_packet_header,receive_packet_total,HEADER_SIZE);
-    if (ntohl(receive_packet_data->chap_response.answer)==(debug_answer^debug_password)){
-        send_packet_header->chap_proto.code=CHAP_CODE_SUCCESS;
-        strcpy(client->nickname,receive_packet_data->chap_response.username);
-        send(client->fd,send_packet_total,HEADER_SIZE,0);
-        printf("\tCHAP_SUCCESS,\"%s\" login in fd(%d)\n",client->nickname,client->fd);
-    } else{
-        send_packet_header->chap_proto.code=CHAP_CODE_FAILURE;
-        send(client->fd,send_packet_total,HEADER_SIZE,0);
-        printf("\tCHAP_FAILURE in fd(%d)\n",client->fd);
+    send_packet_header->chap_proto.sequence+=1;
+    for (auto chap_iter=chap_list->begin();chap_iter!= chap_list->end();++chap_iter) {
+        if(chap_iter->sequence == receive_packet_header->chap_proto.sequence - 1){
+            for(auto & user_iter : *user_list){
+                if(!strcmp(user_iter.user_name,receive_packet_data->chap_response.username)){
+                    if (ntohl(receive_packet_data->chap_response.answer)==(chap_iter->answer^user_iter.password)){
+                        send_packet_header->chap_proto.code=CHAP_CODE_SUCCESS;
+                        strcpy(client->nickname,receive_packet_data->chap_response.username);
+                        send(client->fd,send_packet_total,HEADER_SIZE,0);
+                        printf("\tCHAP_SUCCESS,\"%s\" login in fd(%d)\n",client->nickname,client->fd);
+                    } else{
+                        send_packet_header->chap_proto.code=CHAP_CODE_FAILURE;
+                        send(client->fd,send_packet_total,HEADER_SIZE,0);
+                        printf("\tCHAP_FAILURE in fd(%d)\n",client->fd);
+                    }
+                    printf("\t清除CHAP_challenge记录：sequence:%u answer:%d\n",chap_iter->sequence,chap_iter->answer);
+                    chap_list->erase(chap_iter);
+                    return 0;
+                }
+            }
+            printf("\tCHAP_ERROR:未搜寻到CHAP请求的用户名\n");
+            return 2;
+        }
     }
-    return 0;
+    printf("\tCHAP_ERROR:未找到对应的CHAP_challenge记录\n");
+    return 1;
 }
 
 
@@ -245,8 +262,7 @@ int main(int agrc,char **argv)
 
     client_list = new list<client_info>;
     user_list = new list<user_info>;
-    chap_list = new list<CHAP_waiting>;
-
+    chap_list = new list<chap_session>;
     user_list->push_back( user_info{.user_name="default",.password=12345});
     //add standard input
     FD_SET(0,&ser_fd_set);
