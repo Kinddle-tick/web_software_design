@@ -19,15 +19,15 @@
 #include<fcntl.h>
 #include<cerrno>
 
-#define PROTO_MSG  0
-#define PROTO_CHAP 1
-#define PROTO_FILE 2
+#define PROTO_MSG  0x10
+#define PROTO_CHAP 0x20
+#define PROTO_FILE 0x30
 
 //1、Challenge；2、Response；3、Success；4、Failure。
-#define CHAP_CODE_CHALLENGE 1
-#define CHAP_CODE_RESPONSE 2
-#define CHAP_CODE_SUCCESS 3
-#define CHAP_CODE_FAILURE 4
+#define CHAP_CODE_CHALLENGE 0x01
+#define CHAP_CODE_RESPONSE 0x02
+#define CHAP_CODE_SUCCESS 0x03
+#define CHAP_CODE_FAILURE 0x04
 
 #define USERNAME_LENGTH 30
 typedef int SOCKET_ID;
@@ -46,11 +46,14 @@ union header{
     struct {
         uint8_t proto;
         uint8_t one_data_size;
-        uint8_t code;
+        uint8_t chap_code;
         uint8_t zero;
         uint32_t data_length;
         uint32_t sequence;
     }chap_proto;
+    struct {
+        uint8_t proto;
+    }msg_proto;
 };
 
 union data{

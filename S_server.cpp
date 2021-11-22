@@ -95,7 +95,7 @@ int EventClientMsg(client_info* client){
                 }
                 break;
             case PROTO_CHAP:
-                switch (receive_packet_header->chap_proto.code) {
+                switch (receive_packet_header->chap_proto.chap_code) {
                     case CHAP_CODE_RESPONSE:
                         ActionCHAPJustice(receive_message,&*client);
                         break;
@@ -141,7 +141,7 @@ unsigned int ActionCHAPChallenge(client_info* client){
 
     auto* packet_header=(header *)packet_total;
     packet_header->chap_proto.proto = PROTO_CHAP;
-    packet_header->chap_proto.code = CHAP_CODE_CHALLENGE;
+    packet_header->chap_proto.chap_code = CHAP_CODE_CHALLENGE;
     packet_header->chap_proto.one_data_size=one_data_size;
     packet_header->chap_proto.data_length=data_length;
     packet_header->chap_proto.sequence = sequence;
@@ -198,12 +198,12 @@ unsigned int ActionCHAPJustice(const char* receive_packet_total,client_info* cli
             for(auto & user_iter : *user_list){
                 if(!strcmp(user_iter.user_name,receive_packet_data->chap_response.username)){
                     if (ntohl(receive_packet_data->chap_response.answer)==(chap_iter->answer^user_iter.password)){
-                        send_packet_header->chap_proto.code=CHAP_CODE_SUCCESS;
+                        send_packet_header->chap_proto.chap_code=CHAP_CODE_SUCCESS;
                         strcpy(client->nickname,receive_packet_data->chap_response.username);
                         send(client->fd,send_packet_total,HEADER_SIZE,0);
                         printf("\tCHAP_SUCCESS,\"%s\" login in fd(%d)\n",client->nickname,client->fd);
                     } else{
-                        send_packet_header->chap_proto.code=CHAP_CODE_FAILURE;
+                        send_packet_header->chap_proto.chap_code=CHAP_CODE_FAILURE;
                         send(client->fd,send_packet_total,HEADER_SIZE,0);
                         printf("\tCHAP_FAILURE in fd(%d)\n",client->fd);
                     }

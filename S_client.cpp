@@ -21,63 +21,79 @@ unsigned int password = 12345;
 int conn_client_fd,gui_server_fd;
 using namespace std;
 int max_fd=1;
+bool cue_flag = true;
 list<fd_info>* gui_client_list;
 fd_set * client_fd_set;
 
 //declare
+void BaseActionInterrupt();
 unsigned int ActionCHAPResponse(const char*);
 int ActionPrintConsoleHelp(const char*);
-void Delay(int time_ms)//time单位ms
-{
-    clock_t now = clock();
-    while(clock() - now < time_ms*CLOCKS_PER_SEC/1000);
-}
+int ActionConnectServer();
+int ActionSendMessageToServer(const char*);
+
+//region delay
+//void Delay(int time_ms)//time单位ms
+//{
+//    clock_t now = clock();
+//    while(clock() - now < time_ms*CLOCKS_PER_SEC/1000);
+//}
+//endregion
 
 ssize_t EventServerMsg() {
 #if DEBUG_LEVEL >0
     cout<<"[DEBUG]: EventStdinMsg"<<endl;
 #endif
+#define SERVER_SHUTDOWN 0
     char receive_message[HEADER_SIZE + BUFFER_SIZE];
     bzero(receive_message, HEADER_SIZE + BUFFER_SIZE);
     ssize_t byte_num = read(conn_client_fd, receive_message, BUFFER_SIZE + HEADER_SIZE);
     if (byte_num > 0) {
         header packet_header{};
         memcpy(&packet_header, receive_message, HEADER_SIZE);
-        unsigned int answer;//just for debug
         switch (packet_header.proto) {
             case PROTO_MSG:
-                printf("message form server(%d):%s\n", conn_client_fd, receive_message + HEADER_SIZE);
-                // 广播到所有客户端
+                BaseActionInterrupt();
+                cout<<"\n[sur-rcv] message form server("<<conn_client_fd<<"):"<<receive_message + HEADER_SIZE<<endl;
+                // 广播到所有客户端（gui）
                 for (auto & client_point : *gui_client_list) {
-                    printf("send message to client(%s).fd = %d\n", client_point.nickname, client_point.fd);
+                    cout<<"[sur-rcv] send message to client("<<client_point.nickname<<").fd = "<<client_point.fd<<endl;
                     send(client_point.fd, receive_message, strlen(receive_message + HEADER_SIZE) + HEADER_SIZE + 1, 0);
                 }
-                break;
+                cue_flag = true;
+                return PROTO_MSG;
             case PROTO_CHAP:
-                switch (packet_header.chap_proto.code) {
+                switch (packet_header.chap_proto.chap_code) {
                     case CHAP_CODE_CHALLENGE:
                         ActionCHAPResponse(receive_message);
-                        break;
+                        cout<<("[sur-rcv] receive CHAP Challenge\n");
+                        return PROTO_CHAP|CHAP_CODE_CHALLENGE;
                     case CHAP_CODE_SUCCESS:
-                        printf("CHAP success\n");
-                        break;
+                        cout<<("[sur-rcv] CHAP success\n");
+                        cue_flag = true;
+                        return PROTO_CHAP|CHAP_CODE_SUCCESS;
                     case CHAP_CODE_FAILURE:
-                        printf("CHAP failure\n");
-                        break;
+                        cout<<("[sur-rcv] CHAP failure\n");
+                        cue_flag = true;
+                        return PROTO_CHAP|CHAP_CODE_FAILURE;
                     default:
-                        printf("Invalid CHAP_CODE\n");
+                        cout<<("[sur-rcv] Invalid CHAP_CODE\n");
+                        cue_flag = true;
                 }
                 break;
             case PROTO_FILE:
-                break;
+                cout<<("[sur-rcv] FILE Request..?\n");
+                cue_flag = true;
+                return PROTO_FILE;
             default:
-                printf("Invalid proto,drop the packet...");
+                cout<<("[sur-rcv] Invalid proto,drop the packet...");
+                cue_flag = true;
         }
 
     } else if(byte_num < 0){
-        printf("receive error!\n");
+        cout<<("[sur-rcv] receive error!\n");
     }
-    return byte_num;
+    return SERVER_SHUTDOWN;
 }
 
 int EventServerQuit(){
@@ -87,7 +103,7 @@ int EventServerQuit(){
     char recv_msg[HEADER_SIZE+BUFFER_SIZE];
     strcpy(recv_msg+HEADER_SIZE,"server exit");
     for(auto & client_point : *gui_client_list){
-        printf("**server exit");
+        cout<<("**server exit");
         send(client_point.fd, recv_msg+HEADER_SIZE, strlen(recv_msg+HEADER_SIZE)+1, 0);
     }
     return 0;
@@ -107,7 +123,7 @@ int EventNewGui(){
         auto * tmp_client = new fd_info{client_sock_fd};
         strcpy(tmp_client->nickname,nickname_tmp);
         gui_client_list->push_back(*tmp_client);
-        printf("GUI(%s) joined!\n",tmp_client->nickname);
+        cout<<"GUI("<<tmp_client->nickname<<") joined!"<<endl;
     }
     return 0;
 }
@@ -121,14 +137,14 @@ ssize_t EventGUIMsg(fd_info* client){
     ssize_t byte_num=read(client->fd,recv_msg+HEADER_SIZE,BUFFER_SIZE);
     if(byte_num >0){
         /** region ## 收到GUI内容后的一系列处理手段 ## */
-        printf("message form socket(%s):%s\n", client->nickname, recv_msg+HEADER_SIZE);
+        cout<<"message form socket("<<client->nickname<<"):"<<recv_msg+HEADER_SIZE<<endl;
         send(conn_client_fd, recv_msg, strlen(recv_msg + HEADER_SIZE) + HEADER_SIZE + 1, 0);
         /** endregion */
     }
     else if(byte_num < 0){
-        printf("recv error!");
+        cout<<("recv error!");
     }else{
-        printf("socket(%s) exit! \n and the Procedure is exiting...\n",client->nickname);
+        cout<<"socket("<<client->nickname<<") exit! \nand the Procedure is exiting..."<<endl;
     }
     return byte_num;
 }
@@ -141,12 +157,15 @@ int EventStdinMsg(){
 #define STDIN_EXIT (-2)
 #define NORMAL 0
 #define CONNECT_SERVER 1
+#define OTHER_ERROR (-3)
     /** region ## 检查<标准输入>是否存在于ser_fdset集合中（也就是说，检测到键盘输入时，做如下事情） ## */
     char input_msg[HEADER_SIZE+BUFFER_SIZE]={0};
     char* para[128]={nullptr};//顶天接受128个用空格分开的参数了
     unsigned int para_count=0;
     bool blank_flag= true;
+    bool in_txt_flag = false;
     cin.getline(input_msg,HEADER_SIZE+BUFFER_SIZE,'\n');
+    //特判：
     if(strcmp(input_msg,"exit")==0){
         return CLIENT_EXIT;
     }
@@ -154,14 +173,21 @@ int EventStdinMsg(){
         // 关于cin.eofbit何时置位的问题 https://en.cppreference.com/w/cpp/io/ios_base/iostate
         // cin.badbit是非常严重的错误，（比如空指针..） 区区后台运行根本不会导致
         if(cin.rdstate()&(istream::eofbit|istream::failbit)){//当读取失败或者读取到达流尾
-            printf("发现处于后台工作 stdin被抑制...\n");
+            cout<<("发现处于后台工作 stdin被抑制...\n");
             return STDIN_EXIT;
         }
         return NORMAL;
     }
     //根据空格分离参数 para中将会保存每一个参数的指针 para_count则为参数的个数
     for(char * chr_ptr=input_msg;*chr_ptr != 0;chr_ptr++){
-        if(*chr_ptr==' '){
+        if(*chr_ptr=='\"'){
+            if(chr_ptr == input_msg||*(chr_ptr-1)!='\\'){
+                *chr_ptr=0;
+                in_txt_flag=!in_txt_flag;
+                continue;
+            }
+        }
+        if(*chr_ptr==' ' && !in_txt_flag){
             blank_flag = true;
             *chr_ptr=0;
         } else if (blank_flag){
@@ -170,23 +196,53 @@ int EventStdinMsg(){
             para_count++;
         }
     }
-
     if(!strcmp(para[0],"help")){
         ActionPrintConsoleHelp(para[1]);
-    } else if(!strcmp(para[0],"login")){
-        if(para_count>2){
+    }
+    else if (!strcmp(para[0],"login")){
+        if(para_count > 2){
             strcpy(user_name,para[1]);
             password = (unsigned int)strtoul(para[2],nullptr,10);
-
-            return CONNECT_SERVER;
+        }
+        ActionConnectServer();
+        return CONNECT_SERVER;
+    }
+    else if (!strcmp(para[0],"register")){
+        cout<<"register";
+    }
+    else if (!strcmp(para[0],"msg")){
+        int rtn = ActionSendMessageToServer(para[1]);
+        if(rtn == -1){
+            return OTHER_ERROR;
         }else{
-            return CONNECT_SERVER;
+            return NORMAL;
         }
     }
-
+    else if (!strcmp(para[0],"change_password")){
+        cout<<"change_password";
+    }
+    else if (!strcmp(para[0],"change_username")){
+        cout<<"change_username";
+    }
+    else if (!strcmp(para[0],"ls")){
+        cout<<"ls";
+    }
+    else if (!strcmp(para[0],"install")){
+        cout<<"install";
+    }
+    else{
+        cout<<"Invalid command"<<para[0]<<endl;
+        return NORMAL;
+    }
+    cout<<"这个命令也许还没有完成捏!"<<endl;
     /** endregion */
     return NORMAL;
 }
+
+void BaseActionInterrupt(){
+    cout<<"\033[31m<interrupt⬇>\033[0m";
+}
+
 int ActionPrintConsoleHelp(const char* first_para = nullptr){
 #if DEBUG_LEVEL >0
     cout<<"[DEBUG]: ActionPrintConsoleHelp"<<endl;
@@ -216,7 +272,8 @@ int ActionPrintConsoleHelp(const char* first_para = nullptr){
               "*注册成功与否会给予反馈，注册成功送一个文件夹(划掉\n";
     }else if (!strcmp(first_para,"msg")){
         cout<<""
-              "msg [-t <username>] <your message>\n";
+              "msg [-t <username>] <your message>\n"
+              "*发送消息 如果消息包括空格请用双引号(英文)包围\n";
     }else if (!strcmp(first_para,"change_password")){
         cout<<""
               "change_password <old_password> <new_password>\n"
@@ -262,7 +319,7 @@ unsigned int ActionCHAPResponse(const char* packet_total){
     auto* send_packet_header = (header*)send_packet_total;
     auto* send_packet_data=(data*)(send_packet_total+HEADER_SIZE);
     memcpy(send_packet_header,packet_header,HEADER_SIZE);
-    send_packet_header->chap_proto.code=CHAP_CODE_RESPONSE;
+    send_packet_header->chap_proto.chap_code=CHAP_CODE_RESPONSE;
     send_packet_header->chap_proto.sequence+=1;
     strcpy(send_packet_data->chap_response.username,user_name);
     send_packet_data->chap_response.answer = htonl(answer^password);
@@ -270,7 +327,7 @@ unsigned int ActionCHAPResponse(const char* packet_total){
     return answer;
 };
 
-int ActionConnectServer(bool rst){
+int ActionConnectServer(){
 #if DEBUG_LEVEL >0
     cout<<"[DEBUG]: ActionConnectServer"<<endl;
 #endif
@@ -280,26 +337,17 @@ int ActionConnectServer(bool rst){
     server_addr.sin_port = htons(SER_PORT);
     server_addr.sin_addr.s_addr =INADDR_ANY;
     bzero(&(server_addr.sin_zero), 8);
-    //ODO 看看conn_client_fd 的初始化能不能也移动到事件中 以及能否只就用conn_client_fd==0直接来判断是否rst
-    if(rst){
+    if(conn_client_fd>0){
         close(conn_client_fd);
         FD_CLR(conn_client_fd,client_fd_set);
-        conn_client_fd = socket(AF_INET, SOCK_STREAM, 0);
-        if(conn_client_fd == -1){
-            perror("conn_client_fd socket error");
-            return 1;
-        }
-    } else{
-        conn_client_fd = socket(AF_INET, SOCK_STREAM, 0);
-        if(conn_client_fd == -1){
-            perror("conn_client_fd socket error");
-            return 1;
-        }
     }
-
+    conn_client_fd = socket(AF_INET, SOCK_STREAM, 0);
+    if(conn_client_fd == -1){
+        perror("conn_client_fd socket error");
+        return 1;
+    }
     if(connect(conn_client_fd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_in)) == 0)
     {
-        printf("connect server successes\n");
         //add server
         FD_SET(conn_client_fd, client_fd_set);
         if(max_fd < conn_client_fd)
@@ -308,6 +356,26 @@ int ActionConnectServer(bool rst){
         }
         return 0;
     } else return -1;
+}
+
+int ActionSendMessageToServer(const char* message){
+    if(conn_client_fd>0) {
+        char send_message_body[HEADER_SIZE + BUFFER_SIZE]={0};
+        auto * send_message_header=(header*)send_message_body;
+
+        send_message_header->msg_proto.proto = PROTO_MSG;
+        strcpy(send_message_body+HEADER_SIZE,message);
+
+        cout<<"[send->server] message send to server:"<<send_message_body+HEADER_SIZE<<endl;
+        send(conn_client_fd, send_message_body, strlen(send_message_body + HEADER_SIZE) + HEADER_SIZE + 1, 0);
+        cue_flag = true;
+        return 0;
+    }
+    else{
+        cout<<"[send->server] Error: please connect server..."<<endl;
+        cue_flag = true;
+        return -1;
+    }
 }
 
 int main(int argc, const char * argv[]){
@@ -356,29 +424,14 @@ int main(int argc, const char * argv[]){
 
     // 准备select相关内容
     client_fd_set = new fd_set;
-//    fd_set ser_fdset;
     struct timeval ctl_time{2700,0};
     gui_client_list = new list<fd_info>;
-    list<fd_info>::iterator client_iterator;
-    bool select_flag = true,stdin_flag= true,cue_flag = true;
-    bool is_connected = false;
-
-//    if(connect(conn_client_fd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_in)) == 0)
-//    {
-//        printf("connect server successes\n");
-//    }
+    bool select_flag = true,stdin_flag= true;
 
     /** region #<折叠代码块># select前，将 ser_fdset 初始化 */
     FD_ZERO(client_fd_set);
 
-//        //add server
-//        FD_SET(conn_client_fd, client_fd_set);
-//        if(max_fd < conn_client_fd)
-//        {
-//            max_fd = conn_client_fd;
-//        }
-
-    //add gui
+    //add gui_server
     FD_SET(0,client_fd_set);
     FD_SET(gui_server_fd, client_fd_set);
     if(max_fd < gui_server_fd)
@@ -387,32 +440,19 @@ int main(int argc, const char * argv[]){
     }
 
     /** endregion */
-    while(select_flag&&stdin_flag)
+    while(select_flag)
     {
-
         //select多路复用
         if(cue_flag){
             cue_flag = false;
-            cout<<"(client) shell % ";
+            cout<<"(client) shell "<<user_name<<" % ";
             cout.flush();
         }
-
         int ret = select(max_fd + 1, client_fd_set, nullptr, nullptr, &ctl_time);
 
-        if(ret < 0){
-            perror("select failure");
-            break;
-        }
-
-        else if(ret == 0){
-            printf("time out!");
-        }
-
-        else{
-
+        if(ret > 0){
             if(FD_ISSET(0,client_fd_set))
             {
-                cue_flag = true;
                 switch (EventStdinMsg()) {
                     case NORMAL:
                         break;
@@ -427,66 +467,89 @@ int main(int argc, const char * argv[]){
                         break;
 
                     case CONNECT_SERVER:
-                        //add server
-                        ActionConnectServer(is_connected);
-                        is_connected = true;
                         break;
                 }
             }
             else if(stdin_flag){
                 FD_SET(0,client_fd_set);
             }
-
-            if(FD_ISSET(conn_client_fd, client_fd_set))
-            {
-                /** region ## 检查<conn_client_fd>是否存在于ser_fdset集合中,如果存在 意味着服务器发送了内容 ## */
-                if(EventServerMsg() == 0){
-                    FD_CLR(conn_client_fd, client_fd_set);
-                    printf("server(%d) exit!\n", conn_client_fd);
-                    // 广播到所有客户端
-                    EventServerQuit();
-                }
-                /** endregion */
-            }
-            else{
-                FD_SET(conn_client_fd, client_fd_set);
-            }
-
-            if(FD_ISSET(gui_server_fd, client_fd_set)){
-                /** region ## 检查<gui_server_fd>是否存在于ser_fdset集合中，如果存在 意味着有GUI界面试图连接 ## */
-                EventNewGui();
-                /** endregion */
-            } else{
-                FD_SET(gui_server_fd, client_fd_set);
-            }
-        }
-
-        /** region ## 逐个检查client列表中的套接字接口是否有信息 如果有则说明GUI发送了内容到这里等待转发 ## */
-        for(client_iterator = gui_client_list->begin(); client_iterator != gui_client_list->end(); ++client_iterator){
-            if(FD_ISSET(client_iterator->fd,client_fd_set)){
-                if (EventGUIMsg(&*client_iterator)==0){
-                    /** region ## 发现客户端连接退出后的一系列处理手段 ## */
-                    FD_CLR(client_iterator->fd, client_fd_set);
-                    close(client_iterator->fd);
-                    gui_client_list->erase(client_iterator++);
-                    client_iterator--;
-                    select_flag = false;
+            if(conn_client_fd > 0){
+                if(FD_ISSET(conn_client_fd, client_fd_set))
+                {
+                    /** region ## 检查<conn_client_fd>是否存在于ser_fdset集合中,如果存在 意味着服务器发送了内容 ## */
+                    if(EventServerMsg() == SERVER_SHUTDOWN){
+                        FD_CLR(conn_client_fd, client_fd_set);
+                        cout<<"server("<<conn_client_fd<<") exit!"<<endl;
+                        // 广播到所有客户端
+                        EventServerQuit();
+                    }
                     /** endregion */
                 }
-            }
-            else{
-                FD_SET(client_iterator->fd,client_fd_set);
-                if(max_fd < client_iterator->fd){
-                    max_fd = client_iterator->fd;
+                else{
+                    FD_SET(conn_client_fd, client_fd_set);
                 }
             }
+            if(gui_server_fd > 0){
+                if(FD_ISSET(gui_server_fd, client_fd_set)){
+                    /** region ## 检查<gui_server_fd>是否存在于ser_fdset集合中，如果存在 意味着有GUI界面试图连接 ## */
+                    EventNewGui();
+                    /** endregion */
+                }
+                else{
+                    FD_SET(gui_server_fd, client_fd_set);
+                }
+            }
+            /** region ## 逐个检查client列表中的套接字接口是否有信息 如果有则说明GUI发送了内容到这里等待转发 ## */
+            for(auto client_iterator = gui_client_list->begin(); client_iterator != gui_client_list->end(); ++client_iterator){
+                if(FD_ISSET(client_iterator->fd,client_fd_set)){
+                    if (EventGUIMsg(&*client_iterator)==0){
+                        /** region ## 发现客户端连接退出后的一系列处理手段 ## */
+                        FD_CLR(client_iterator->fd, client_fd_set);
+                        close(client_iterator->fd);
+                        gui_client_list->erase(client_iterator++);
+                        client_iterator--;
+                        select_flag = false;
+                        /** endregion */
+                    }
+                }
+                else{
+                    FD_SET(client_iterator->fd,client_fd_set);
+                    if(max_fd < client_iterator->fd){
+                        max_fd = client_iterator->fd;
+                    }
+                }
+            }
+            /** endregion */
         }
-        /** endregion */
+
+        else if(ret == 0){
+            cout<<"time out!"<<endl;
+            if(stdin_flag){
+                FD_SET(0,client_fd_set);
+            }
+            if(conn_client_fd > 0){
+                FD_SET(conn_client_fd,client_fd_set);
+            }
+            if(gui_server_fd > 0){
+                FD_SET(gui_server_fd, client_fd_set);
+            }
+            for (auto client_iter:*gui_client_list){
+                FD_SET(client_iter.fd,client_fd_set);
+            }
+
+        }
+
+        else{
+            perror("select failure");
+            break;
+        }
     }
 
     gui_client_list->clear();
     delete gui_client_list;
-    close(conn_client_fd);
-    close(gui_server_fd);
+    if(conn_client_fd)
+        close(conn_client_fd);
+    if(gui_server_fd)
+        close(gui_server_fd);
     return 0;
 }
