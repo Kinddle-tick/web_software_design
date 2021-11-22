@@ -17,7 +17,7 @@ struct chap_session{
 };
 #define backlog 16
 #define DIR_LENGTH 30 //请注意根据文件夹的名称更改此数字
-#define USERNAME_LENGTH sizeof(USER_NAME)
+
 
 using namespace std;
 //int client_ID = 0;

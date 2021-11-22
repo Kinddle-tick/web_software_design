@@ -1,15 +1,17 @@
 #include "My_console.h"
 #include <list>
 
+#define GUI_MSG 0
+#define GUI_FILE 1
+#define GUI_SET_NAME_AND_PASSWORD 2
+#define GUI_CHANGE_NAME_AND_PASSWORD 3
+
 struct fd_info{
     int fd;
     USER_NAME nickname;
 };
 
-//const char * my_addr_Decimal = "127.0.0.1";
-//const int my_port = 6000;
-
-const char* user_name = "default";
+char user_name[USERNAME_LENGTH] = "default";
 unsigned int password = 12345;
 
 // 初始化 准备接收消息
@@ -219,9 +221,6 @@ int main(int argc, const char * argv[]){
     fd_set ser_fdset;
     int max_fd=1;
     struct timeval ctl_time{2700,0};
-
-//    link_list<fd_info> gui_client_list;
-//    link_list<fd_info>* client_point;
     gui_client_list = new list<fd_info>;
     list<fd_info>::iterator client_iterator;
     bool select_flag = true,stdin_flag= true;
@@ -246,15 +245,6 @@ int main(int argc, const char * argv[]){
             max_fd = gui_server_fd;
         }
 
-        //add client 将client加入select列表中
-        //这里一般只会有py的gui链接进来 实际上也只会有一个 但这么写也没问题 特别是和server形式比较相似
-//        for(client_iterator = gui_client_list.begin();client_iterator!= gui_client_list.end();++client_iterator){
-//            FD_SET(client_iterator->fd,&ser_fdset);
-//            if(max_fd < client_iterator->fd)
-//            {
-//                max_fd = client_iterator->fd;
-//            }
-//        }
         /** endregion */
 
         while(select_flag)

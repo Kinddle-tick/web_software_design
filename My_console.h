@@ -29,8 +29,10 @@
 #define CHAP_CODE_SUCCESS 3
 #define CHAP_CODE_FAILURE 4
 
+#define USERNAME_LENGTH 30
 typedef int SOCKET_ID;
-typedef char USER_NAME[30];
+typedef char USER_NAME[USERNAME_LENGTH];
+
 #define HEADER_SIZE 20
 #define BUFFER_SIZE 1004
 #define SER_PORT 11284
