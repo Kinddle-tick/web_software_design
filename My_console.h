@@ -19,16 +19,6 @@
 #include<fcntl.h>
 #include<cerrno>
 
-#define PROTO_MSG  0x10
-#define PROTO_CHAP 0x20
-#define PROTO_FILE 0x30
-
-//1、Challenge；2、Response；3、Success；4、Failure。
-#define CHAP_CODE_CHALLENGE 0x01
-#define CHAP_CODE_RESPONSE 0x02
-#define CHAP_CODE_SUCCESS 0x03
-#define CHAP_CODE_FAILURE 0x04
-
 #define USERNAME_LENGTH 30
 typedef int SOCKET_ID;
 typedef char USER_NAME[USERNAME_LENGTH];
@@ -36,6 +26,7 @@ typedef char USER_NAME[USERNAME_LENGTH];
 #define HEADER_SIZE 20
 #define BUFFER_SIZE 1004
 #define SER_PORT 11284
+
 union header{
     uint8_t chr[HEADER_SIZE]={0};
     uint8_t proto;
@@ -62,6 +53,22 @@ union data{
         uint32_t answer;
         char other;
     }chap_response;
+};
+
+enum State : char {
+    Offline,//既可以标志客户端自身 也可以作为服务端标记客户端的凭据
+    LoginTry,
+    Online,
+
+    CHAPChallenging,
+    CHAPResponse,
+    CHAPSuccess,
+    CHAPFailure,
+};
+enum Protocol : char{
+    ProtoMsg,
+    ProtoCHAP,
+    ProtoFile,
 };
 
 

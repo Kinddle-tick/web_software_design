@@ -12,6 +12,7 @@ struct fd_info{
     USER_NAME nickname;
 };
 
+
 char user_name[USERNAME_LENGTH] = "default";
 unsigned int password = 12345;
 
@@ -24,7 +25,7 @@ int max_fd=1;
 bool cue_flag = true;
 list<fd_info>* gui_client_list;
 fd_set * client_fd_set;
-
+State client_state = Offline;
 //declare
 void BaseActionInterrupt();
 unsigned int ActionCHAPResponse(const char*);
@@ -52,7 +53,7 @@ ssize_t EventServerMsg() {
         header packet_header{};
         memcpy(&packet_header, receive_message, HEADER_SIZE);
         switch (packet_header.proto) {
-            case PROTO_MSG:
+            case ProtoMsg:
                 BaseActionInterrupt();
                 cout<<"\n[sur-rcv] message form server("<<conn_client_fd<<"):"<<receive_message + HEADER_SIZE<<endl;
                 // 广播到所有客户端（gui）
@@ -61,53 +62,68 @@ ssize_t EventServerMsg() {
                     send(client_point.fd, receive_message, strlen(receive_message + HEADER_SIZE) + HEADER_SIZE + 1, 0);
                 }
                 cue_flag = true;
-                return PROTO_MSG;
-            case PROTO_CHAP:
+                return ProtoMsg;
+            case ProtoCHAP:
                 switch (packet_header.chap_proto.chap_code) {
-                    case CHAP_CODE_CHALLENGE:
+                    case CHAPChallenging:
                         ActionCHAPResponse(receive_message);
                         cout<<("[sur-rcv] receive CHAP Challenge\n");
-                        return PROTO_CHAP|CHAP_CODE_CHALLENGE;
-                    case CHAP_CODE_SUCCESS:
+                        return ProtoCHAP|CHAPChallenging<<2;
+                    case CHAPSuccess:
                         cout<<("[sur-rcv] CHAP success\n");
                         cue_flag = true;
-                        return PROTO_CHAP|CHAP_CODE_SUCCESS;
-                    case CHAP_CODE_FAILURE:
+                        return ProtoCHAP|CHAPSuccess<<2;
+                    case CHAPFailure:
                         cout<<("[sur-rcv] CHAP failure\n");
                         cue_flag = true;
-                        return PROTO_CHAP|CHAP_CODE_FAILURE;
+                        return ProtoCHAP|CHAPFailure<<2;
                     default:
                         cout<<("[sur-rcv] Invalid CHAP_CODE\n");
                         cue_flag = true;
                 }
                 break;
-            case PROTO_FILE:
+            case ProtoFile:
                 cout<<("[sur-rcv] FILE Request..?\n");
                 cue_flag = true;
-                return PROTO_FILE;
+                return ProtoFile;
             default:
                 cout<<("[sur-rcv] Invalid proto,drop the packet...");
                 cue_flag = true;
         }
 
-    } else if(byte_num < 0){
+    }
+    else if(byte_num < 0){
         cout<<("[sur-rcv] receive error!\n");
+    }
+    else{
+        //region 服务端停止服务
+        FD_CLR(conn_client_fd, client_fd_set);
+        cout<<"server("<<conn_client_fd<<") exit!"<<endl;
+        // 广播到所有客户端
+        strcpy(receive_message+HEADER_SIZE,"Server Exit!");
+        for(auto & client_point : *gui_client_list){
+            BaseActionInterrupt();
+            cout<<("\n**server exit")<<endl;
+            cue_flag = true;
+            send(client_point.fd, receive_message+HEADER_SIZE, strlen(receive_message+HEADER_SIZE)+1, 0);
+        }
+        //endregion
     }
     return SERVER_SHUTDOWN;
 }
 
-int EventServerQuit(){
-#if DEBUG_LEVEL >0
-    cout<<"[DEBUG]: EventServerQuit"<<endl;
-#endif
-    char recv_msg[HEADER_SIZE+BUFFER_SIZE];
-    strcpy(recv_msg+HEADER_SIZE,"server exit");
-    for(auto & client_point : *gui_client_list){
-        cout<<("**server exit");
-        send(client_point.fd, recv_msg+HEADER_SIZE, strlen(recv_msg+HEADER_SIZE)+1, 0);
-    }
-    return 0;
-}
+//int EventServerQuit(){
+//#if DEBUG_LEVEL >0
+//    cout<<"[DEBUG]: EventServerQuit"<<endl;
+//#endif
+//    char recv_msg[HEADER_SIZE+BUFFER_SIZE];
+//    strcpy(recv_msg+HEADER_SIZE,"server exit");
+//    for(auto & client_point : *gui_client_list){
+//        cout<<("**server exit");
+//        send(client_point.fd, recv_msg+HEADER_SIZE, strlen(recv_msg+HEADER_SIZE)+1, 0);
+//    }
+//    return 0;
+//}
 
 int EventNewGui(){
 #if DEBUG_LEVEL >0
@@ -145,6 +161,8 @@ ssize_t EventGUIMsg(fd_info* client){
         cout<<("recv error!");
     }else{
         cout<<"socket("<<client->nickname<<") exit! \nand the Procedure is exiting..."<<endl;
+        FD_CLR(client->fd, client_fd_set);
+        close(client->fd);
     }
     return byte_num;
 }
@@ -167,6 +185,7 @@ int EventStdinMsg(){
     cin.getline(input_msg,HEADER_SIZE+BUFFER_SIZE,'\n');
     //特判：
     if(strcmp(input_msg,"exit")==0){
+        client_state = Offline;
         return CLIENT_EXIT;
     }
     if(strlen(input_msg)==0){
@@ -319,7 +338,7 @@ unsigned int ActionCHAPResponse(const char* packet_total){
     auto* send_packet_header = (header*)send_packet_total;
     auto* send_packet_data=(data*)(send_packet_total+HEADER_SIZE);
     memcpy(send_packet_header,packet_header,HEADER_SIZE);
-    send_packet_header->chap_proto.chap_code=CHAP_CODE_RESPONSE;
+    send_packet_header->chap_proto.chap_code=CHAPResponse;
     send_packet_header->chap_proto.sequence+=1;
     strcpy(send_packet_data->chap_response.username,user_name);
     send_packet_data->chap_response.answer = htonl(answer^password);
@@ -354,16 +373,20 @@ int ActionConnectServer(){
         {
             max_fd = conn_client_fd;
         }
+        client_state = LoginTry;
         return 0;
-    } else return -1;
+    } else {
+        client_state = Offline;
+        return -1;
+    }
 }
 
 int ActionSendMessageToServer(const char* message){
-    if(conn_client_fd>0) {
+    if(client_state == Online) {
         char send_message_body[HEADER_SIZE + BUFFER_SIZE]={0};
         auto * send_message_header=(header*)send_message_body;
 
-        send_message_header->msg_proto.proto = PROTO_MSG;
+        send_message_header->msg_proto.proto = ProtoMsg;
         strcpy(send_message_body+HEADER_SIZE,message);
 
         cout<<"[send->server] message send to server:"<<send_message_body+HEADER_SIZE<<endl;
@@ -423,6 +446,7 @@ int main(int argc, const char * argv[]){
 
 
     // 准备select相关内容
+    client_state = Offline;
     client_fd_set = new fd_set;
     struct timeval ctl_time{2700,0};
     gui_client_list = new list<fd_info>;
@@ -440,6 +464,7 @@ int main(int argc, const char * argv[]){
     }
 
     /** endregion */
+
     while(select_flag)
     {
         //select多路复用
@@ -458,7 +483,7 @@ int main(int argc, const char * argv[]){
                         break;
 
                     case CLIENT_EXIT:
-                        select_flag= false;
+                        select_flag= false; // stdin输入指令使其退出
                         break;
 
                     case STDIN_EXIT:
@@ -477,11 +502,9 @@ int main(int argc, const char * argv[]){
                 if(FD_ISSET(conn_client_fd, client_fd_set))
                 {
                     /** region ## 检查<conn_client_fd>是否存在于ser_fdset集合中,如果存在 意味着服务器发送了内容 ## */
+                    EventServerMsg();
                     if(EventServerMsg() == SERVER_SHUTDOWN){
-                        FD_CLR(conn_client_fd, client_fd_set);
-                        cout<<"server("<<conn_client_fd<<") exit!"<<endl;
-                        // 广播到所有客户端
-                        EventServerQuit();
+                        select_flag = false; // 因服务端退出而退出
                     }
                     /** endregion */
                 }
@@ -504,11 +527,9 @@ int main(int argc, const char * argv[]){
                 if(FD_ISSET(client_iterator->fd,client_fd_set)){
                     if (EventGUIMsg(&*client_iterator)==0){
                         /** region ## 发现客户端连接退出后的一系列处理手段 ## */
-                        FD_CLR(client_iterator->fd, client_fd_set);
-                        close(client_iterator->fd);
                         gui_client_list->erase(client_iterator++);
                         client_iterator--;
-                        select_flag = false;
+                        select_flag = false; //GUI 主动退出
                         /** endregion */
                     }
                 }
