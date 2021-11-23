@@ -25,7 +25,35 @@ typedef char USER_NAME[USERNAME_LENGTH];
 
 #define HEADER_SIZE 20
 #define BUFFER_SIZE 1004
-#define SER_PORT 11284
+#define SER_PORT 11285
+
+enum State : char {
+    Offline = 0,//既可以标志客户端自身 也可以作为服务端标记客户端的凭据
+    LoginTry,
+    Online,
+
+    CHAPChallenging,
+    CHAPResponse,
+    CHAPSuccess,
+    CHAPFailure,
+
+    CTLLogin,
+    CTLRegister,
+    CTLChangePassword,
+    CTLChangeUsername,
+    CTLUnregistered,
+};
+enum Protocol : char{
+    ProtoCTL,
+    ProtoMsg,
+    ProtoCHAP,
+    ProtoFile,
+};
+const char* State_description[]={
+        "\033[0m\033[31mOffline\033[0m",
+        "\033[0m\033[35mLoginTry\033[0m",
+        "\033[5m\033[32mOnline\033[0m",
+};
 
 union header{
     uint8_t chr[HEADER_SIZE]={0};
@@ -36,8 +64,8 @@ union header{
     }base_proto;
     struct {
         uint8_t proto;
-        uint8_t one_data_size;
         uint8_t chap_code;
+        uint8_t one_data_size;
         uint8_t zero;
         uint32_t data_length;
         uint32_t sequence;
@@ -45,32 +73,22 @@ union header{
     struct {
         uint8_t proto;
     }msg_proto;
+    struct{
+        uint8_t proto = ProtoCTL;
+        uint8_t ctl_code;
+    }ctl_proto;
 };
 
 union data{
     struct {
-        USER_NAME username;
+        USER_NAME userName;
         uint32_t answer;
         char other;
     }chap_response;
+    struct {
+        USER_NAME userName;
+    }ctl_login;
 };
-
-enum State : char {
-    Offline,//既可以标志客户端自身 也可以作为服务端标记客户端的凭据
-    LoginTry,
-    Online,
-
-    CHAPChallenging,
-    CHAPResponse,
-    CHAPSuccess,
-    CHAPFailure,
-};
-enum Protocol : char{
-    ProtoMsg,
-    ProtoCHAP,
-    ProtoFile,
-};
-
 
 class Base_console {
 protected:

@@ -1,10 +1,10 @@
 #include "My_console.h"
 #include <list>
 
-#define GUI_MSG 0
-#define GUI_FILE 1
-#define GUI_SET_NAME_AND_PASSWORD 2
-#define GUI_CHANGE_NAME_AND_PASSWORD 3
+//#define GUI_MSG 0
+//#define GUI_FILE 1
+//#define GUI_SET_NAME_AND_PASSWORD 2
+//#define GUI_CHANGE_NAME_AND_PASSWORD 3
 #define DEBUG_LEVEL 0
 
 struct fd_info{
@@ -12,9 +12,12 @@ struct fd_info{
     USER_NAME nickname;
 };
 
-
-char user_name[USERNAME_LENGTH] = "default";
-unsigned int password = 12345;
+struct client_self_data{
+    USER_NAME confirmUserName = "";
+    USER_NAME tmpUserName = "";
+    uint32_t password = 0;
+    State state = Offline;
+}*self_data;
 
 // 初始化 准备接收消息
 
@@ -25,12 +28,12 @@ int max_fd=1;
 bool cue_flag = true;
 list<fd_info>* gui_client_list;
 fd_set * client_fd_set;
-State client_state = Offline;
 //declare
 void BaseActionInterrupt();
 unsigned int ActionCHAPResponse(const char*);
 int ActionPrintConsoleHelp(const char*);
 int ActionConnectServer();
+int ActionControlLogin();
 int ActionSendMessageToServer(const char*);
 
 //region delay
@@ -50,12 +53,20 @@ ssize_t EventServerMsg() {
     bzero(receive_message, HEADER_SIZE + BUFFER_SIZE);
     ssize_t byte_num = read(conn_client_fd, receive_message, BUFFER_SIZE + HEADER_SIZE);
     if (byte_num > 0) {
-        header packet_header{};
-        memcpy(&packet_header, receive_message, HEADER_SIZE);
-        switch (packet_header.proto) {
+        auto* packet_header = (header *)(receive_message);
+        switch (packet_header->proto) {
+            case ProtoCTL:
+                switch (packet_header->ctl_proto.ctl_code) {
+                    case CTLUnregistered:
+                        cout<<("用户名尚未注册...")<<endl;
+                        self_data->state = Offline;
+                        cue_flag = true;
+                        return ProtoCTL|CTLUnregistered<<2;
+                }
+                break;
             case ProtoMsg:
                 BaseActionInterrupt();
-                cout<<"\n[sur-rcv] message form server("<<conn_client_fd<<"):"<<receive_message + HEADER_SIZE<<endl;
+                cout<<"\n[sur-rcv] message form server("<<conn_client_fd<<"):\033[34m"<<receive_message + HEADER_SIZE<<"\033[0m"<<endl;
                 // 广播到所有客户端（gui）
                 for (auto & client_point : *gui_client_list) {
                     cout<<"[sur-rcv] send message to client("<<client_point.nickname<<").fd = "<<client_point.fd<<endl;
@@ -64,17 +75,20 @@ ssize_t EventServerMsg() {
                 cue_flag = true;
                 return ProtoMsg;
             case ProtoCHAP:
-                switch (packet_header.chap_proto.chap_code) {
+                switch (packet_header->chap_proto.chap_code) {
                     case CHAPChallenging:
                         ActionCHAPResponse(receive_message);
                         cout<<("[sur-rcv] receive CHAP Challenge\n");
                         return ProtoCHAP|CHAPChallenging<<2;
                     case CHAPSuccess:
                         cout<<("[sur-rcv] CHAP success\n");
+                        self_data->state = Online;
+                        strcpy(self_data->confirmUserName,self_data->tmpUserName);
                         cue_flag = true;
                         return ProtoCHAP|CHAPSuccess<<2;
                     case CHAPFailure:
                         cout<<("[sur-rcv] CHAP failure\n");
+                        self_data->state = Offline;
                         cue_flag = true;
                         return ProtoCHAP|CHAPFailure<<2;
                     default:
@@ -185,14 +199,14 @@ int EventStdinMsg(){
     cin.getline(input_msg,HEADER_SIZE+BUFFER_SIZE,'\n');
     //特判：
     if(strcmp(input_msg,"exit")==0){
-        client_state = Offline;
+        self_data->state = Offline;
         return CLIENT_EXIT;
     }
     if(strlen(input_msg)==0){
         // 关于cin.eofbit何时置位的问题 https://en.cppreference.com/w/cpp/io/ios_base/iostate
         // cin.badbit是非常严重的错误，（比如空指针..） 区区后台运行根本不会导致
         if(cin.rdstate()&(istream::eofbit|istream::failbit)){//当读取失败或者读取到达流尾
-            cout<<("发现处于后台工作 stdin被抑制...\n");
+            cout<<("发现处于后台工作 stdin被抑制...")<<endl;
             return STDIN_EXIT;
         }
         return NORMAL;
@@ -220,10 +234,13 @@ int EventStdinMsg(){
     }
     else if (!strcmp(para[0],"login")){
         if(para_count > 2){
-            strcpy(user_name,para[1]);
-            password = (unsigned int)strtoul(para[2],nullptr,10);
+            self_data->password = (unsigned int)strtoul(para[2],nullptr,10);
+        }
+        if(para_count >1){
+            strcpy(self_data->tmpUserName,para[1]);
         }
         ActionConnectServer();
+        ActionControlLogin();
         return CONNECT_SERVER;
     }
     else if (!strcmp(para[0],"register")){
@@ -236,6 +253,15 @@ int EventStdinMsg(){
         }else{
             return NORMAL;
         }
+    }
+    else if (!strcmp(para[0],"logout")){
+        if(conn_client_fd>0){
+            close(conn_client_fd);
+            FD_CLR(conn_client_fd,client_fd_set);
+            conn_client_fd=0;
+            self_data->state = Offline;
+        }
+        return NORMAL;
     }
     else if (!strcmp(para[0],"change_password")){
         cout<<"change_password";
@@ -250,7 +276,7 @@ int EventStdinMsg(){
         cout<<"install";
     }
     else{
-        cout<<"Invalid command"<<para[0]<<endl;
+        cout<<"Invalid command:,'"<<para[0]<<R"('try to use 'help')"<<endl;
         return NORMAL;
     }
     cout<<"这个命令也许还没有完成捏!"<<endl;
@@ -271,6 +297,7 @@ int ActionPrintConsoleHelp(const char* first_para = nullptr){
         //region 可用的指令
         cout<<"可使用的指令如下:(区分大小写)\n"
               "login            连接到服务器并使用账号密码登录\n"
+              "logout           登出\n"
               "register         连接到服务器并尝试使用账号密码注册\n"
               "msg              发送一条信息到服务器，默认广播给所有人\n"
               "change_password  更改密码\n"
@@ -285,6 +312,10 @@ int ActionPrintConsoleHelp(const char* first_para = nullptr){
         cout<<""
               "login <username> <password>\n"
               "*登录成功与否会给予反馈\n";
+    } else if (!strcmp(first_para,"logout")){
+        cout<<""
+              "logout\n"
+              "";
     } else if (!strcmp(first_para,"register")){
         cout<<""
               "register <username> <password>\n"
@@ -340,8 +371,8 @@ unsigned int ActionCHAPResponse(const char* packet_total){
     memcpy(send_packet_header,packet_header,HEADER_SIZE);
     send_packet_header->chap_proto.chap_code=CHAPResponse;
     send_packet_header->chap_proto.sequence+=1;
-    strcpy(send_packet_data->chap_response.username,user_name);
-    send_packet_data->chap_response.answer = htonl(answer^password);
+    memcpy(send_packet_data->chap_response.userName, self_data->tmpUserName,USERNAME_LENGTH);
+    send_packet_data->chap_response.answer = htonl(answer^self_data->password);
     send(conn_client_fd,send_packet_total, HEADER_SIZE+offsetof(data,chap_response.other)+1,0);
     return answer;
 };
@@ -356,6 +387,7 @@ int ActionConnectServer(){
     server_addr.sin_port = htons(SER_PORT);
     server_addr.sin_addr.s_addr =INADDR_ANY;
     bzero(&(server_addr.sin_zero), 8);
+
     if(conn_client_fd>0){
         close(conn_client_fd);
         FD_CLR(conn_client_fd,client_fd_set);
@@ -363,6 +395,7 @@ int ActionConnectServer(){
     conn_client_fd = socket(AF_INET, SOCK_STREAM, 0);
     if(conn_client_fd == -1){
         perror("conn_client_fd socket error");
+        self_data->state = Offline;
         return 1;
     }
     if(connect(conn_client_fd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_in)) == 0)
@@ -373,16 +406,34 @@ int ActionConnectServer(){
         {
             max_fd = conn_client_fd;
         }
-        client_state = LoginTry;
+        self_data->state = LoginTry;
         return 0;
     } else {
-        client_state = Offline;
+        self_data->state = Offline;
         return -1;
     }
 }
 
+int ActionControlLogin(){
+    if(self_data->state != Offline){
+        char packet_total[HEADER_SIZE+BUFFER_SIZE]={0};
+        auto* packet_header = (header*)packet_total;
+        auto* packet_data = (data*)(packet_total+HEADER_SIZE);
+        packet_header->proto = ProtoCTL;
+        packet_header->ctl_proto.ctl_code = CTLLogin;
+        memcpy(packet_data->ctl_login.userName, self_data->tmpUserName,USERNAME_LENGTH);
+        send(conn_client_fd,packet_total,HEADER_SIZE+sizeof(packet_data->ctl_login)+1,0);
+        self_data->state = LoginTry;
+        return 0;
+    } else{
+        cout<< "can not send packet to server in state <Offline>" <<endl;
+        return 1;
+    }
+
+}
+
 int ActionSendMessageToServer(const char* message){
-    if(client_state == Online) {
+    if(self_data->state == Online) {
         char send_message_body[HEADER_SIZE + BUFFER_SIZE]={0};
         auto * send_message_header=(header*)send_message_body;
 
@@ -411,6 +462,7 @@ int main(int argc, const char * argv[]){
 //        std::cout<<"Usage:"<<argv[0]<<"127.0.0.1 60000"<<endl;
         my_addr.sin_family = AF_INET;
         my_addr.sin_addr.s_addr=inet_addr("127.0.0.1");
+        srand(clock());
         my_addr.sin_port = htons(rand()%30000+20000);
         bzero(&(my_addr.sin_zero), 8);
 //        cout<<"using default\n";
@@ -446,11 +498,11 @@ int main(int argc, const char * argv[]){
 
 
     // 准备select相关内容
-    client_state = Offline;
     client_fd_set = new fd_set;
-    struct timeval ctl_time{2700,0};
     gui_client_list = new list<fd_info>;
+    self_data = new client_self_data{.confirmUserName ="default",.password = 12345,.state = Offline};
     bool select_flag = true,stdin_flag= true;
+    struct timeval ctl_time{2700,0};
 
     /** region #<折叠代码块># select前，将 ser_fdset 初始化 */
     FD_ZERO(client_fd_set);
@@ -470,7 +522,7 @@ int main(int argc, const char * argv[]){
         //select多路复用
         if(cue_flag){
             cue_flag = false;
-            cout<<"(client) shell "<<user_name<<" % ";
+            cout<<"("<<State_description[self_data->state]<<") shell \033[35m"<<self_data->confirmUserName<<"\033[0m % ";
             cout.flush();
         }
         int ret = select(max_fd + 1, client_fd_set, nullptr, nullptr, &ctl_time);
@@ -480,6 +532,7 @@ int main(int argc, const char * argv[]){
             {
                 switch (EventStdinMsg()) {
                     case NORMAL:
+                        cue_flag = true;
                         break;
 
                     case CLIENT_EXIT:
@@ -502,9 +555,13 @@ int main(int argc, const char * argv[]){
                 if(FD_ISSET(conn_client_fd, client_fd_set))
                 {
                     /** region ## 检查<conn_client_fd>是否存在于ser_fdset集合中,如果存在 意味着服务器发送了内容 ## */
-                    EventServerMsg();
-                    if(EventServerMsg() == SERVER_SHUTDOWN){
-                        select_flag = false; // 因服务端退出而退出
+//                    EventServerMsg();
+                    switch (EventServerMsg()) {
+                        case SERVER_SHUTDOWN:
+                            select_flag = false;
+                            break;
+                        default:
+                            break;
                     }
                     /** endregion */
                 }
@@ -572,5 +629,6 @@ int main(int argc, const char * argv[]){
         close(conn_client_fd);
     if(gui_server_fd)
         close(gui_server_fd);
+    delete self_data;
     return 0;
 }

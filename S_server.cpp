@@ -3,8 +3,8 @@
 
 struct client_info{
     int fd;
-    int state=0;
-    clock_t tick=0;
+    State state = Offline;
+    clock_t tick = 0;
     USER_NAME nickname;
 };
 struct user_info{
@@ -14,14 +14,18 @@ struct user_info{
 struct chap_session{
     uint32_t sequence;
     uint32_t answer;
+    clock_t tick = 0;
+    client_info * client;
 };
+
 #define backlog 16
 #define DIR_LENGTH 30 //请注意根据文件夹的名称更改此数字
-
 
 using namespace std;
 //int client_ID = 0;
 int conn_server_fd = 0;
+fd_set ser_fd_set{0};
+int max_fd=1;
 list<client_info>* client_list;
 list<user_info>* user_list;
 list<chap_session>* chap_list;
@@ -29,8 +33,10 @@ list<chap_session>* chap_list;
 const char server_data_dir[DIR_LENGTH] = "server_data/";
 
 //declare
+unsigned int ActionCTLUnregistered(client_info*);
 unsigned int ActionCHAPChallenge(client_info*);
 unsigned int ActionCHAPJustice(const char*,client_info*);
+int ActionControlLogin(client_info* ,const char* );
 
 int EventRcvStdin(){
     char input_message[HEADER_SIZE+BUFFER_SIZE]={0};
@@ -56,18 +62,18 @@ int EventNewClient(){
     int client_sock_fd = accept(conn_server_fd, (struct sockaddr *)&client_address, &address_len);
     if(client_sock_fd > 0)
     {
-        char nickname_tmp[21]{0};
-        snprintf(nickname_tmp,20,"User[unknown]");
-        auto* tmp_client = new client_info{client_sock_fd,0,clock()};
-        strcpy(tmp_client->nickname,nickname_tmp);
-        client_list->push_back(*tmp_client);
-        printf("client(%s) joined!\n",tmp_client->nickname);
-        client_info c = *(client_list->begin());
-        uint answer = ActionCHAPChallenge(tmp_client);
-        printf("\tCHAP_CHALLENGE to fd(%d), and the answer is:%u\n",client_sock_fd,answer);
-        fflush(stdout);
+//        char nickname_tmp[21]{0};
+//        snprintf(nickname_tmp,20,"User[unknown]");
 
-        delete tmp_client;
+//        auto* tmp_client = new client_info{client_sock_fd,Offline,clock()};
+//        strcpy(tmp_client->nickname,nickname_tmp);
+        client_list->push_back(client_info{.fd = client_sock_fd,.state = Offline,.tick=clock(),.nickname = "Unknown",});
+        printf("client-Offline joined in fd(%d)!\n",client_sock_fd);
+//        client_info c = *(client_list->begin());
+//        uint answer = ActionCHAPChallenge(tmp_client);
+//        printf("\tCHAP_CHALLENGE to fd(%d), and the answer is:%u\n",client_sock_fd,answer);
+        fflush(stdout);
+//        delete tmp_client;
     }
     return client_sock_fd;
 }
@@ -79,6 +85,22 @@ int EventClientMsg(client_info* client){
     if(byte_num >0){
         auto* receive_packet_header = (header*) receive_message;
         switch (receive_packet_header->proto) {
+            case ProtoCTL:
+                switch (receive_packet_header->ctl_proto.ctl_code) {
+                    case CTLLogin:
+                        ActionControlLogin(client,receive_message);
+                        break;
+                    case CTLRegister:
+                        break;
+                    case CTLChangeUsername:
+                        break;
+                    case CTLChangePassword:
+                        break;
+                    deault:
+                        cout<<"receive invalid CTL_code";
+                        break;
+                }
+                break;
             case ProtoMsg:
                 printf("message form client(%s):%s\n", client->nickname, receive_message + HEADER_SIZE);
                 // 广播到所有客户端
@@ -97,7 +119,7 @@ int EventClientMsg(client_info* client){
             case ProtoCHAP:
                 switch (receive_packet_header->chap_proto.chap_code) {
                     case CHAPResponse:
-                        ActionCHAPJustice(receive_message,&*client);
+                        ActionCHAPJustice(receive_message,client);
                         break;
                     default:
                         printf("\tInvalid CHAP_CODE\n");
@@ -114,6 +136,31 @@ int EventClientMsg(client_info* client){
         printf("client(%s) exit!\n",client->nickname);
         return -1;
     }
+    return 0;
+}
+
+int ActionControlLogin(client_info* client,const char* packet_total){
+    auto * packet_data  = (data *)(packet_total+HEADER_SIZE);
+    for(auto & user_iter : *user_list){
+        if(!strcmp(user_iter.user_name,packet_data->ctl_login.userName)){
+            strcpy(client->nickname, packet_data->ctl_login.userName);
+            ActionCHAPChallenge(client);
+            client->state = CHAPChallenging;
+            return 0;
+        }
+    }
+    cout<<"没找到用户名：("<<packet_data->ctl_login.userName<<")"<<endl;
+    ActionCTLUnregistered(client);
+    client->state = Offline;
+    return 1;
+}
+
+unsigned int ActionCTLUnregistered(client_info* client){
+    char send_packet[HEADER_SIZE+BUFFER_SIZE];
+    auto * send_packet_header = (header*) send_packet;
+    send_packet_header->proto = ProtoCTL;
+    send_packet_header->ctl_proto.ctl_code=CTLUnregistered;
+    send(client->fd,send_packet,HEADER_SIZE,0);
     return 0;
 }
 
@@ -181,8 +228,7 @@ unsigned int ActionCHAPChallenge(client_info* client){
         answer += one_data_size==2 ? ntohl(tmpnum.uint32):0;
     }
     send(client->fd, packet_total, HEADER_SIZE + data_length * (1<<one_data_size), 0);
-    client->state=1;
-    chap_list->insert(chap_iterator, chap_session{.sequence=sequence,.answer=answer});
+    chap_list->insert(chap_iterator, chap_session{.sequence=sequence,.answer=answer,.tick=clock(),.client = client});
     return answer;
 }
 
@@ -196,27 +242,32 @@ unsigned int ActionCHAPJustice(const char* receive_packet_total,client_info* cli
     for (auto chap_iter=chap_list->begin();chap_iter!= chap_list->end();++chap_iter) {
         if(chap_iter->sequence == receive_packet_header->chap_proto.sequence - 1){
             for(auto & user_iter : *user_list){
-                if(!strcmp(user_iter.user_name,receive_packet_data->chap_response.username)){
+                if(!strcmp(user_iter.user_name,receive_packet_data->chap_response.userName)&&
+                !strcmp(user_iter.user_name,chap_iter->client->nickname)){
                     if (ntohl(receive_packet_data->chap_response.answer)==(chap_iter->answer^user_iter.password)){
                         send_packet_header->chap_proto.chap_code=CHAPSuccess;
-                        strcpy(client->nickname,receive_packet_data->chap_response.username);
+                        strcpy(client->nickname,receive_packet_data->chap_response.userName);
                         send(client->fd,send_packet_total,HEADER_SIZE,0);
                         printf("\tCHAP_SUCCESS,\"%s\" login in fd(%d)\n",client->nickname,client->fd);
+                        client->state=Online;
                     } else{
                         send_packet_header->chap_proto.chap_code=CHAPFailure;
                         send(client->fd,send_packet_total,HEADER_SIZE,0);
                         printf("\tCHAP_FAILURE in fd(%d)\n",client->fd);
+                        client->state=Offline;
                     }
-                    printf("\t清除CHAP_challenge记录：sequence:%u answer:%d\n",chap_iter->sequence,chap_iter->answer);
+                    printf("\t清除CHAP_challenge记录：sequence:%u answer:%u\n",chap_iter->sequence,chap_iter->answer);
                     chap_list->erase(chap_iter);
                     return 0;
                 }
             }
             printf("\tCHAP_ERROR:未搜寻到CHAP请求的用户名\n");
+            client->state=Offline;
             return 2;
         }
     }
     printf("\tCHAP_ERROR:未找到对应的CHAP_challenge记录\n");
+    client->state=Offline;
     return 1;
 }
 
@@ -300,8 +351,6 @@ int main(int agrc,char **argv){
 
     //region fd_set的初始化操作等
     //fd_set  准备fd_set
-    fd_set ser_fd_set{0};
-    int max_fd=1;
     bool select_flag = true,stdin_flag= true;
     struct timeval ctl_time{2700, 0};
     //add standard input
@@ -315,70 +364,76 @@ int main(int agrc,char **argv){
     //endregion
 
     printf("Waiting for connection!\n");
-    while(select_flag)
-    {
+    while(select_flag) {
         int ret = select(max_fd + 1, &ser_fd_set, nullptr, nullptr, &ctl_time);
 
-        if(ret < 0)
-        {
-            perror("select failure\n");
-            continue;
-        }
-        else if(ret == 0)
-        {
-            printf("time out!");
-        }
-        else
-        {
-            if(FD_ISSET(0,&ser_fd_set)) //<标准输入>是否存在于ser_fdset集合中（也就是说，检测到输入时，做如下事情）
+        if (ret > 0) {
+            if (FD_ISSET(0, &ser_fd_set)) //<标准输入>是否存在于ser_fdset集合中（也就是说，检测到输入时，做如下事情）
             {
                 switch (EventRcvStdin()) {
-                    case 0: break;
+                    case 0:
+                        break;
 
-                    case 1:{
+                    case 1: {
                         select_flag = false;
                     }
-                    case 2:{
-                        FD_CLR(0,&ser_fd_set);
-                        stdin_flag= false;
+                    case 2: {
+                        FD_CLR(0, &ser_fd_set);
+                        stdin_flag = false;
                         break;
                     }
                 }
-            }
-            else if(stdin_flag){
-                FD_SET(0,&ser_fd_set);
+            } else if (stdin_flag) {
+                FD_SET(0, &ser_fd_set);
             }
 
-            if(FD_ISSET(conn_server_fd, &ser_fd_set))//<server>是否存在于ser_fdset集合中,如果存在 意味着有connect请求
+            if (FD_ISSET(conn_server_fd, &ser_fd_set))//<server>是否存在于ser_fdset集合中,如果存在 意味着有connect请求
             {
                 EventNewClient();
-            }
-            else{
+            } else {
                 FD_SET(conn_server_fd, &ser_fd_set);
+            }
+
+            for (auto client_iterator = client_list->begin(); client_iterator != client_list->end(); ++client_iterator) {
+                if (FD_ISSET(client_iterator->fd, &ser_fd_set)) {
+                    client_iterator->tick =clock();
+                    if (EventClientMsg(&*client_iterator) == -1) {
+                        FD_CLR(client_iterator->fd, &ser_fd_set);
+                        close(client_iterator->fd);
+                        client_list->erase(client_iterator++);
+                        client_iterator--;
+                    }
+                } else {
+                    FD_SET(client_iterator->fd, &ser_fd_set);
+                    if (max_fd < client_iterator->fd) {
+                        max_fd = client_iterator->fd;
+                    }
+                }
             }
 
         }
 
         //deal with the message
-        for(auto client_iterator = client_list->begin(); client_iterator != client_list->end(); ++client_iterator){
-            if(FD_ISSET(client_iterator->fd,&ser_fd_set)){
-                if(EventClientMsg(&*client_iterator)==-1){
-                    FD_CLR(client_iterator->fd, &ser_fd_set);
-                    close(client_iterator->fd);
-                    client_list->erase(client_iterator++);
-                    client_iterator--;
-                }
+        else if (ret == 0) {
+            printf("time out!");
+            if(stdin_flag){
+                FD_SET(0,&ser_fd_set);
             }
-            else{
-                FD_SET(client_iterator->fd,&ser_fd_set);
-                if(max_fd < client_iterator->fd){
-                        max_fd = client_iterator->fd;
-                    }
+            FD_SET(conn_server_fd, &ser_fd_set);
+            for(auto client_iter:*client_list){
+                FD_SET(client_iter.fd, &ser_fd_set);
             }
+
+        } else {
+            perror("select failure\n");
+            continue;
         }
     }
 
     printf("exiting...\n");
+//    for(auto client_iter : *client_list){
+//        close(client_iter.fd);
+//    }
     close(conn_server_fd);
     client_list->clear();
 
