@@ -8,6 +8,12 @@
 #define DEBUG_LEVEL 0
 #define DIR_LENGTH 30 //请注意根据文件夹的名称更改此数字
 
+struct file_session{
+    uint32_t session_id;
+    uint32_t sequence;
+    int file_fd;
+};
+
 struct fd_info{
     int fd;
     USER_NAME nickname;
@@ -18,6 +24,8 @@ struct client_self_data{
     USER_NAME tmpUserName = "";
     uint32_t password = 0;
     State state = Offline;
+    const char client_data_root[DIR_LENGTH] = "client_data/";
+    char client_data_dir_now[DIR_LENGTH] = "client_data/";
 }*self_data;
 
 // 初始化 准备接收消息
@@ -28,9 +36,10 @@ using namespace std;
 int max_fd=1;
 bool cue_flag = true;
 list<fd_info>* gui_client_list;
+list<file_session>* file_list;
 fd_set * client_fd_set;
-
-const char server_data_dir[DIR_LENGTH] = "client_data/";
+const char* client_data_dir = "client_data/";
+//const char client_data_dir[DIR_LENGTH] = "client_data/";
 //declare
 void BaseActionInterrupt();
 unsigned int ActionCHAPResponse(const char*);
@@ -39,6 +48,12 @@ int ActionConnectServer();
 int ActionControlLogin();
 int ActionSendMessageToServer(const char*);
 int ActionControlLs();
+int ActionFileRequest(const char*);
+int ActionFileResponseReceived(const char * );
+int ActionFileTransportingReceived(const char*);
+int ActionFileACKSend(uint32_t, uint32_t);
+int ActionFileErrorSend(uint32_t, uint32_t);
+int ActionFileEndReceived(const char*);
 //region delay
 //void Delay(int time_ms)//time单位ms
 //{
@@ -80,7 +95,7 @@ ssize_t EventServerMsg() {
                 cout<<"\n[sur-rcv] message form server("<<conn_client_fd<<"):\033[34m"<<receive_message + HEADER_SIZE<<"\033[0m"<<endl;
                 // 广播到所有客户端（gui）
                 for (auto & client_point : *gui_client_list) {
-                    cout<<"[sur-rcv] send message to client("<<client_point.nickname<<").fd = "<<client_point.fd<<endl;
+                    cout<<"[sur-rcv] send message to client("<<client_point.nickname<<").socket_fd = "<<client_point.fd<<endl;
                     send(client_point.fd, receive_message, strlen(receive_message + HEADER_SIZE) + HEADER_SIZE + 1, 0);
                 }
                 cue_flag = true;
@@ -95,6 +110,8 @@ ssize_t EventServerMsg() {
                         cout<<("[sur-rcv] CHAP success\n");
                         self_data->state = Online;
                         strcpy(self_data->confirmUserName,self_data->tmpUserName);
+                        strcpy(self_data->client_data_dir_now,self_data->client_data_root);
+                        strcat(self_data->client_data_dir_now,self_data->confirmUserName);
                         cue_flag = true;
                         return ProtoCHAP|CHAPSuccess<<2;
                     case CHAPFailure:
@@ -108,6 +125,18 @@ ssize_t EventServerMsg() {
                 }
                 break;
             case ProtoFile:
+                switch (packet_header->file_proto.file_code) {
+                    case FileTransporting:
+                        ActionFileTransportingReceived(receive_message);
+                        return ProtoFile|FileTransporting<<2;
+                    case FileResponse:
+                        ActionFileResponseReceived(receive_message);
+                        return ProtoFile|FileTransporting<<2;
+                    case FileEnd:
+                        ActionFileEndReceived(receive_message);
+                        cue_flag = true;
+                        return ProtoFile|FileEnd<<2;
+                }
                 cout<<("[sur-rcv] FILE Request..?\n");
                 cue_flag = true;
                 return ProtoFile;
@@ -144,7 +173,7 @@ ssize_t EventServerMsg() {
 //    strcpy(recv_msg+HEADER_SIZE,"server exit");
 //    for(auto & client_point : *gui_client_list){
 //        cout<<("**server exit");
-//        send(client_point.fd, recv_msg+HEADER_SIZE, strlen(recv_msg+HEADER_SIZE)+1, 0);
+//        send(client_point.socket_fd, recv_msg+HEADER_SIZE, strlen(recv_msg+HEADER_SIZE)+1, 0);
 //    }
 //    return 0;
 //}
@@ -287,7 +316,12 @@ int EventStdinMsg(){
         cout<<"cd";
     }
     else if (!strcmp(para[0],"download")){
-        cout<<"download";
+        if(para_count < 2){
+            cout<<"请输入文件名..."<<endl;
+            return NORMAL;
+        }
+        ActionFileRequest(para[1]);
+        return NORMAL;
     }
     else if (!strcmp(para[0],"upload")){
         cout<<"upload";
@@ -297,8 +331,8 @@ int EventStdinMsg(){
         return NORMAL;
     }
     cout<<"这个命令也许还没有完成捏!"<<endl;
-    /** endregion */
     return NORMAL;
+    /** endregion */
 }
 
 void BaseActionInterrupt(){
@@ -505,14 +539,118 @@ int ActionControlLs(){
         return -1;
     }
 }
-//int ActionControlCd(){
-//
-//}
+
+int ActionFileRequest(const char* file_path){
+    if(self_data->state == Online){
+        char packet_total[HEADER_SIZE+BUFFER_SIZE]={0};
+        auto* packet_header = (header*)packet_total;
+        auto* packet_data = (data*)(packet_total+HEADER_SIZE);
+        packet_header->proto=ProtoFile;
+        packet_header->file_proto.file_code = FileRequest;
+
+        strcpy(packet_data->file_request.file_path,file_path);
+
+        send(conn_client_fd,packet_total,HEADER_SIZE+ strlen(file_path)+1,0);
+        return 0;
+    }
+    else{
+        cout<< "can only send download cmd to server in state <Online>" <<endl;
+        return -1;
+    }
+}
+
+int ActionFileResponseReceived(const char * received_packet_total){
+    auto* received_packet_header = (header *)received_packet_total;
+    if(self_data->state == Online){
+        auto* received_packet_data = (data *)(received_packet_total+HEADER_SIZE);
+        char request_path[USER_PATH_MAX_LENGTH]={0};
+        strcpy(request_path,self_data->client_data_dir_now);
+        if(access(request_path,W_OK)!=0){
+            cout<<request_path<<"目录不存在，将会被创建"<<endl;
+            mkdir(request_path,S_IRWXU);
+        }
+        strcat(request_path,"/");
+        strcat(request_path,received_packet_data->file_response.file_path);
+        if(access(request_path,W_OK)==0){
+            cout<<request_path<<"文件已存在，将会被清除"<<endl;
+        }
+        int tmp_fd = open(request_path,O_WRONLY|O_TRUNC|O_CREAT,S_IRUSR|S_IWUSR|S_IXUSR);
+        if(tmp_fd<0){
+            perror("文件打开失败");
+            return -1;
+        }
+        file_session tmp_session{.session_id=received_packet_header->file_proto.session_id,
+                                 .sequence = received_packet_header->file_proto.sequence,
+                                 .file_fd = tmp_fd};
+        file_list->push_back(tmp_session);
+        ActionFileACKSend(tmp_session.session_id,tmp_session.sequence);
+        cout<<"已准备好接受文件传输"<<endl;
+        return 0;
+    }
+    else{
+        cout<<"需要在线才能进行文件传输"<<endl;
+        ActionFileErrorSend(received_packet_header->file_proto.session_id,received_packet_header->file_proto.sequence);
+        return -1;
+    }
+}
+
+int ActionFileTransportingReceived(const char* received_packet_total){
+    auto* received_packet_header = (header*)received_packet_total;
+    auto* received_packet_data = (data*)(received_packet_total+HEADER_SIZE);
+    for(auto &file_ss_iter :*file_list){
+        if (file_ss_iter.session_id==received_packet_header->file_proto.session_id){
+            if(file_ss_iter.sequence == received_packet_header->file_proto.sequence){
+                ssize_t size = write(file_ss_iter.file_fd,received_packet_data->file_transport.file_data,
+                                     received_packet_header->file_proto.data_length);
+                if(size >0){
+                    ActionFileACKSend(received_packet_header->file_proto.session_id,
+                                      received_packet_header->file_proto.sequence+size);
+                    file_ss_iter.sequence+=size;
+                    cout<<"确收了"<<size<<"字节数据!"<<endl;
+                    return 0;
+                }
+                else{
+                    ActionFileErrorSend(received_packet_header->file_proto.session_id, received_packet_header->file_proto.sequence);
+                    return -1;
+                }
+            }
+        }
+    }
+    cout<<"没有找到session和sequence均符合条件的会话;"<<endl;
+    return -1;
+};
+
+int ActionFileACKSend(uint32_t session_id=0,uint32_t sequence=0){
+    header send_packet_header{.file_proto{.file_code=FileAck,.data_length=0,.session_id=session_id,.sequence=sequence}};
+    send(conn_client_fd,&send_packet_header,HEADER_SIZE,0);
+    return 0;
+}
+
+int ActionFileErrorSend(uint32_t session_id=0,uint32_t sequence_id=0){
+    return 0;
+}
+int ActionFileEndReceived(const char* received_packet_total){
+    auto* received_packet_header = (header*)received_packet_total;
+    cout<<"一个文件接受完了"<<endl;
+    for(auto &file_ss_iter:* file_list){
+        if(file_ss_iter.session_id == received_packet_header->file_proto.session_id){
+            if(file_ss_iter.sequence == received_packet_header->file_proto.sequence){
+                cout<<"找到该文件并释放fd成功"<<endl;
+                close(file_ss_iter.file_fd);
+                return 0;
+            }
+        }
+    }
+    cout<<"没有找到session和sequence均符合条件的会话;"<<endl;
+    return -1;
+};
+
+
 int main(int argc, const char * argv[]){
 
     struct sockaddr_in my_addr{AF_INET};
     struct sockaddr_in server_addr{};
-
+    mkdir(client_data_dir,S_IRWXU);
     if (argc!=3) {
         my_addr.sin_family = AF_INET;
         my_addr.sin_addr.s_addr=inet_addr("127.0.0.1");
@@ -554,7 +692,9 @@ int main(int argc, const char * argv[]){
     // 准备select相关内容
     client_fd_set = new fd_set;
     gui_client_list = new list<fd_info>;
+    file_list = new list<file_session>;
     self_data = new client_self_data{.confirmUserName ="default",.password = 12345,.state = Offline};
+    strcat(self_data->client_data_dir_now,self_data->confirmUserName);
     bool select_flag = true,stdin_flag= true;
     struct timeval ctl_time{2700,0};
 

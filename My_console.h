@@ -26,7 +26,8 @@ typedef char USER_NAME[USERNAME_LENGTH];
 
 #define HEADER_SIZE 20
 #define BUFFER_SIZE 1004
-#define SER_PORT 11282
+#define SER_PORT 11285
+#define USER_PATH_MAX_LENGTH (512- USERNAME_LENGTH - sizeof(unsigned int))
 
 enum State : char {
     Offline = 0,//既可以标志客户端自身 也可以作为服务端标记客户端的凭据
@@ -45,6 +46,14 @@ enum State : char {
     CTLLs,
     CTLCd,
     CTLUnregistered,
+
+    FileRequest,
+    FileResponse,
+    FileInit,
+    FileTransporting,
+    FileAck,
+    FileError,
+    FileEnd,
 };
 enum Protocol : char{
     ProtoCTL,
@@ -80,6 +89,13 @@ union header{
         uint8_t proto = ProtoCTL;
         uint8_t ctl_code;
     }ctl_proto;
+    struct{
+        uint8_t proto = ProtoFile;
+        uint8_t file_code;
+        uint32_t data_length;
+        uint32_t session_id;
+        uint32_t sequence;
+    }file_proto;
 };
 
 union data{
@@ -93,6 +109,16 @@ union data{
     struct {
         char chr[BUFFER_SIZE];
     }ctl_ls;
+    struct {
+        char file_path[BUFFER_SIZE];
+    }file_request;
+    struct {
+        char file_path[BUFFER_SIZE];
+    }file_response;
+    struct {
+        uint32_t CRC_32;
+        char file_data[BUFFER_SIZE - sizeof(uint32_t)];//未来可能加入CRC
+    }file_transport;
 };
 
 class Base_console {
