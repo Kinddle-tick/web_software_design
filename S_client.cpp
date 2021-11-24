@@ -130,6 +130,8 @@ ssize_t EventServerMsg() {
                         ActionFileTransportingReceived(receive_message);
                         return ProtoFile|FileTransporting<<2;
                     case FileResponse:
+                        BaseActionInterrupt();
+                        cout<<endl;
                         ActionFileResponseReceived(receive_message);
                         return ProtoFile|FileTransporting<<2;
                     case FileEnd:
@@ -606,7 +608,6 @@ int ActionFileTransportingReceived(const char* received_packet_total){
                     ActionFileACKSend(received_packet_header->file_proto.session_id,
                                       received_packet_header->file_proto.sequence+size);
                     file_ss_iter.sequence+=size;
-                    cout<<"确收了"<<size<<"字节数据!"<<endl;
                     return 0;
                 }
                 else{
@@ -632,16 +633,24 @@ int ActionFileErrorSend(uint32_t session_id=0,uint32_t sequence_id=0){
 int ActionFileEndReceived(const char* received_packet_total){
     auto* received_packet_header = (header*)received_packet_total;
     cout<<"一个文件接受完了"<<endl;
-    for(auto &file_ss_iter:* file_list){
-        if(file_ss_iter.session_id == received_packet_header->file_proto.session_id){
-            if(file_ss_iter.sequence == received_packet_header->file_proto.sequence){
-                cout<<"找到该文件并释放fd成功"<<endl;
-                close(file_ss_iter.file_fd);
-                return 0;
-            }
+    for(auto file_ss_iter = file_list->begin(); file_ss_iter!=file_list->end();++file_ss_iter){
+        if(file_ss_iter->session_id == received_packet_header->file_proto.session_id){
+            close(file_ss_iter->file_fd);
+            file_list->erase(file_ss_iter);
+            return 0;
         }
     }
-    cout<<"没有找到session和sequence均符合条件的会话;"<<endl;
+    cout<<"没有在列表里找到相应的文件"<<endl;
+//    for(auto &file_ss_iter:* file_list){
+//        if(file_ss_iter.session_id == received_packet_header->file_proto.session_id){
+//            if(file_ss_iter.sequence == received_packet_header->file_proto.sequence){
+//                cout<<"找到该文件并释放fd成功"<<endl;
+//                close(file_ss_iter.file_fd);
+//                return 0;
+//            }
+//        }
+//    }
+//    cout<<"没有找到session和sequence均符合条件的会话;"<<endl;
     return -1;
 };
 

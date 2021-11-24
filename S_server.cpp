@@ -320,7 +320,7 @@ unsigned int ActionCHAPJustice(const char* receive_packet_total, client_session*
 int ActionFileResponse(const char* receive_packet_total, client_session* client){
     auto* receive_packet_header = (header *)(receive_packet_total);
     auto* receive_packet_data = (data *)(receive_packet_total+HEADER_SIZE);
-    cout<<"request path:"<<receive_packet_data->file_request.file_path<<endl;
+    cout<<"请求文件名:"<<receive_packet_data->file_request.file_path<<endl;
     char request_path[USER_PATH_MAX_LENGTH]={0};
     strcpy(request_path,client->now_path);
     strcat(request_path,"/");
@@ -341,7 +341,8 @@ int ActionFileResponse(const char* receive_packet_total, client_session* client)
         tmp_session.tick = clock();
         tmp_session.file_fd = fd_tmp;
         tmp_session.file_ptr = fdopen(fd_tmp,"rb");
-        send_packet_header->file_proto.sequence = tmp_session.sequence = random();
+        srand(clock());
+        send_packet_header->file_proto.sequence = tmp_session.sequence = rand();
         send_packet_header->file_proto.session_id = tmp_session.session_id = session_id++;
         file_list->push_back(tmp_session);
         strcpy(send_packet_data->file_response.file_path,receive_packet_data->file_request.file_path);
@@ -350,7 +351,7 @@ int ActionFileResponse(const char* receive_packet_total, client_session* client)
         send_packet_header->file_proto.data_length = 0;
         send(client->socket_fd,send_packet_total,HEADER_SIZE+ strlen(send_packet_data->file_response.file_path)+1,0);
 
-        cout<<"do something with file:"<<request_path<<endl;
+        cout<<"试图发送文件:"<<request_path<<endl;
         return 0;
     }
     else{
@@ -377,7 +378,6 @@ int ActionFileTranslating(file_session* file_ss , client_session* client){
     if(send_packet_header->file_proto.data_length == 0){
         cout<<"文件传输完毕"<<endl;
         ActionFileEndSend(send_packet_total,client);
-        close(file_ss->file_fd);
         return 0;
     }else if(send_packet_header->file_proto.data_length < 0){
         cout<<"文件读取失败"<<endl;
@@ -400,7 +400,6 @@ int ActionFileAckReceived(const char* received_packet_total, client_session* cli
                     return 0;
                 }
                 if(file_ss_iter.state == FileTransporting){
-                    cout<<"client "<<client->nickname<<"完成了一轮文件传输！"<<endl;
                     ActionFileTranslating(&file_ss_iter,client);
                     return 0;
                 }
@@ -415,8 +414,15 @@ int ActionFileEndSend(const char* raw_packet,client_session* client){
     auto * send_packet_header = (header*)raw_packet;
     send_packet_header->file_proto.file_code = FileEnd;
     send(client->socket_fd,raw_packet,HEADER_SIZE,0);
-
-    return 0;
+    for(auto file_ss_iter = file_list->begin(); file_ss_iter!=file_list->end();++file_ss_iter){
+        if(file_ss_iter->session_id == send_packet_header->file_proto.session_id){
+            close(file_ss_iter->file_fd);
+            file_list->erase(file_ss_iter);
+            return 0;
+        }
+    }
+    cout<<"没有在列表里找到相应的文件"<<endl;
+    return -1;
 }
 
 clock_t time_ms(clock_t a,clock_t b){
