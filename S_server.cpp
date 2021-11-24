@@ -1,15 +1,21 @@
 #include "My_console.h"
 #include <list>
 
+#define backlog 16
+#define DIR_LENGTH 30 //请注意根据文件夹的名称更改此数字
+#define USER_PATH_MAX_LENGTH (512- USERNAME_LENGTH - sizeof(unsigned int))
+
 struct client_info{
     int fd;
+    USER_NAME nickname;
+    char now_path[USER_PATH_MAX_LENGTH]={0};
     State state = Offline;
     clock_t tick = 0;
-    USER_NAME nickname;
 };
 struct user_info{
     USER_NAME user_name;
     unsigned int password;
+    char root_path[USER_PATH_MAX_LENGTH];
 };
 struct chap_session{
     uint32_t sequence;
@@ -17,9 +23,6 @@ struct chap_session{
     clock_t tick = 0;
     client_info * client;
 };
-
-#define backlog 16
-#define DIR_LENGTH 30 //请注意根据文件夹的名称更改此数字
 
 using namespace std;
 //int client_ID = 0;
@@ -33,10 +36,11 @@ list<chap_session>* chap_list;
 const char server_data_dir[DIR_LENGTH] = "server_data/";
 
 //declare
-unsigned int ActionCTLUnregistered(client_info*);
+unsigned int ActionControlUnregistered(client_info *client);
 unsigned int ActionCHAPChallenge(client_info*);
 unsigned int ActionCHAPJustice(const char*,client_info*);
 int ActionControlLogin(client_info* ,const char* );
+int ActionControlLsResponse(client_info*);
 
 int EventRcvStdin(){
     char input_message[HEADER_SIZE+BUFFER_SIZE]={0};
@@ -62,18 +66,9 @@ int EventNewClient(){
     int client_sock_fd = accept(conn_server_fd, (struct sockaddr *)&client_address, &address_len);
     if(client_sock_fd > 0)
     {
-//        char nickname_tmp[21]{0};
-//        snprintf(nickname_tmp,20,"User[unknown]");
-
-//        auto* tmp_client = new client_info{client_sock_fd,Offline,clock()};
-//        strcpy(tmp_client->nickname,nickname_tmp);
-        client_list->push_back(client_info{.fd = client_sock_fd,.state = Offline,.tick=clock(),.nickname = "Unknown",});
+        client_list->push_back(client_info{.fd = client_sock_fd,.nickname = "Unknown",.now_path="",.state = Offline,.tick=clock()});
         printf("client-Offline joined in fd(%d)!\n",client_sock_fd);
-//        client_info c = *(client_list->begin());
-//        uint answer = ActionCHAPChallenge(tmp_client);
-//        printf("\tCHAP_CHALLENGE to fd(%d), and the answer is:%u\n",client_sock_fd,answer);
         fflush(stdout);
-//        delete tmp_client;
     }
     return client_sock_fd;
 }
@@ -95,6 +90,9 @@ int EventClientMsg(client_info* client){
                     case CTLChangeUsername:
                         break;
                     case CTLChangePassword:
+                        break;
+                    case CTLLs:
+                        ActionControlLsResponse(client);
                         break;
                     deault:
                         cout<<"receive invalid CTL_code";
@@ -144,24 +142,51 @@ int ActionControlLogin(client_info* client,const char* packet_total){
     for(auto & user_iter : *user_list){
         if(!strcmp(user_iter.user_name,packet_data->ctl_login.userName)){
             strcpy(client->nickname, packet_data->ctl_login.userName);
+            strcpy(client->now_path, user_iter.root_path);
             ActionCHAPChallenge(client);
             client->state = CHAPChallenging;
             return 0;
         }
     }
     cout<<"没找到用户名：("<<packet_data->ctl_login.userName<<")"<<endl;
-    ActionCTLUnregistered(client);
+    ActionControlUnregistered(client);
     client->state = Offline;
     return 1;
 }
 
-unsigned int ActionCTLUnregistered(client_info* client){
+unsigned int ActionControlUnregistered(client_info* client){
     char send_packet[HEADER_SIZE+BUFFER_SIZE];
     auto * send_packet_header = (header*) send_packet;
     send_packet_header->proto = ProtoCTL;
     send_packet_header->ctl_proto.ctl_code=CTLUnregistered;
     send(client->fd,send_packet,HEADER_SIZE,0);
     return 0;
+}
+
+int ActionControlLsResponse(client_info* client){
+    if(client->state == Online){
+        DIR *dir = opendir(client->now_path);
+        if(dir == nullptr){
+            cout<<"client ("<<client->nickname<<")的ls请求被拒绝: 用户根目录无效"<<endl;
+            return -1;
+        }
+        char response_packet[HEADER_SIZE+BUFFER_SIZE]= {0};
+        auto * response_header = (header*)response_packet;
+        auto * response_data = (data*)(response_packet+HEADER_SIZE);
+        response_header->proto = ProtoCTL;
+        response_header->ctl_proto.ctl_code = CTLLs;
+        dirent* dir_ptr;
+        while((dir_ptr = readdir(dir))!= nullptr){
+            strcat(response_data->ctl_ls.chr,dir_ptr->d_name);
+            strcat(response_data->ctl_ls.chr,"\n");
+        }
+        closedir(dir);
+        send(client->fd,response_packet,HEADER_SIZE+strlen(response_data->ctl_ls.chr)+1,0);
+        return 0;
+    } else{
+        cout<<"client ("<<client->nickname<<")的ls请求被拒绝: 非Online状态没有权限"<<endl;
+        return -1;
+    }
 }
 
 unsigned int ActionCHAPChallenge(client_info* client){
@@ -289,6 +314,8 @@ int main(int agrc,char **argv){
 
     //region 读取文件夹下user_sheet.csv 初始化用户列表
     char user_sheet_path[DIR_LENGTH+20];
+    char user_root_path[USER_PATH_MAX_LENGTH];
+
     strcpy(user_sheet_path,server_data_dir);
     strcat(user_sheet_path,"user_sheet.csv");
     ifstream user_sheet_istream(user_sheet_path);
@@ -305,15 +332,30 @@ int main(int agrc,char **argv){
                 num_start=num_end;
             }
         }
-
         string num_str = line.substr(num_start,num_end);
         tmp_user.password=stoi(num_str);
         if(strlen(line.c_str())>USERNAME_LENGTH){
             printf("name:'%s' is too long,drop it",line.c_str());
         }
         strcpy(tmp_user.user_name,line.c_str());
+        strcpy(user_root_path,server_data_dir);
+        strcat(user_root_path,tmp_user.user_name);
+        int debug_tmp = access(user_root_path,R_OK|W_OK|F_OK);
+        if(access(user_root_path,R_OK|W_OK|F_OK)<0){
+            if(mkdir(user_root_path,S_IRWXU) == 0){
+                cout<<"为用户"<<tmp_user.user_name<<"于"<<user_root_path<<"创建了文件夹"<<endl;
+                strcpy(tmp_user.root_path,user_root_path);
+            }
+            else{
+                cout<<"试图为用户"<<tmp_user.user_name<<"于"<<user_root_path<<"创建文件夹失败"<<endl;
+                strcpy(tmp_user.root_path,"");
+            }
+        }else{
+            strcpy(tmp_user.root_path,user_root_path);
+        }
         user_list->push_back(tmp_user);
     }
+
     if(user_list->empty()){
         printf("Warning: using default user_list...");
         user_list->push_back( user_info{.user_name="default",.password=12345});

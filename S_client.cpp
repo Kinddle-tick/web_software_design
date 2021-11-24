@@ -6,6 +6,7 @@
 //#define GUI_SET_NAME_AND_PASSWORD 2
 //#define GUI_CHANGE_NAME_AND_PASSWORD 3
 #define DEBUG_LEVEL 0
+#define DIR_LENGTH 30 //请注意根据文件夹的名称更改此数字
 
 struct fd_info{
     int fd;
@@ -28,6 +29,8 @@ int max_fd=1;
 bool cue_flag = true;
 list<fd_info>* gui_client_list;
 fd_set * client_fd_set;
+
+const char server_data_dir[DIR_LENGTH] = "client_data/";
 //declare
 void BaseActionInterrupt();
 unsigned int ActionCHAPResponse(const char*);
@@ -35,7 +38,7 @@ int ActionPrintConsoleHelp(const char*);
 int ActionConnectServer();
 int ActionControlLogin();
 int ActionSendMessageToServer(const char*);
-
+int ActionControlLs();
 //region delay
 //void Delay(int time_ms)//time单位ms
 //{
@@ -54,6 +57,8 @@ ssize_t EventServerMsg() {
     ssize_t byte_num = read(conn_client_fd, receive_message, BUFFER_SIZE + HEADER_SIZE);
     if (byte_num > 0) {
         auto* packet_header = (header *)(receive_message);
+
+        //region *对服务端收包的处理
         switch (packet_header->proto) {
             case ProtoCTL:
                 switch (packet_header->ctl_proto.ctl_code) {
@@ -62,6 +67,12 @@ ssize_t EventServerMsg() {
                         self_data->state = Offline;
                         cue_flag = true;
                         return ProtoCTL|CTLUnregistered<<2;
+                    case CTLLs:
+                        BaseActionInterrupt();
+                        cout<<"\n"<<(((data *)(receive_message+HEADER_SIZE))->ctl_ls.chr);
+                        cue_flag = true;
+                        return ProtoCTL|CTLLs<<2;
+
                 }
                 break;
             case ProtoMsg:
@@ -104,13 +115,13 @@ ssize_t EventServerMsg() {
                 cout<<("[sur-rcv] Invalid proto,drop the packet...");
                 cue_flag = true;
         }
+        //endregion
 
     }
     else if(byte_num < 0){
         cout<<("[sur-rcv] receive error!\n");
     }
     else{
-        //region 服务端停止服务
         FD_CLR(conn_client_fd, client_fd_set);
         cout<<"server("<<conn_client_fd<<") exit!"<<endl;
         // 广播到所有客户端
@@ -121,7 +132,6 @@ ssize_t EventServerMsg() {
             cue_flag = true;
             send(client_point.fd, receive_message+HEADER_SIZE, strlen(receive_message+HEADER_SIZE)+1, 0);
         }
-        //endregion
     }
     return SERVER_SHUTDOWN;
 }
@@ -166,10 +176,8 @@ ssize_t EventGUIMsg(fd_info* client){
     bzero(recv_msg,HEADER_SIZE+BUFFER_SIZE);
     ssize_t byte_num=read(client->fd,recv_msg+HEADER_SIZE,BUFFER_SIZE);
     if(byte_num >0){
-        /** region ## 收到GUI内容后的一系列处理手段 ## */
         cout<<"message form socket("<<client->nickname<<"):"<<recv_msg+HEADER_SIZE<<endl;
         send(conn_client_fd, recv_msg, strlen(recv_msg + HEADER_SIZE) + HEADER_SIZE + 1, 0);
-        /** endregion */
     }
     else if(byte_num < 0){
         cout<<("recv error!");
@@ -190,7 +198,7 @@ int EventStdinMsg(){
 #define NORMAL 0
 #define CONNECT_SERVER 1
 #define OTHER_ERROR (-3)
-    /** region ## 检查<标准输入>是否存在于ser_fdset集合中（也就是说，检测到键盘输入时，做如下事情） ## */
+    /** region * 检查<标准输入>是否存在于ser_fdset集合中（也就是说，检测到键盘输入时，做如下事情） ## */
     char input_msg[HEADER_SIZE+BUFFER_SIZE]={0};
     char* para[128]={nullptr};//顶天接受128个用空格分开的参数了
     unsigned int para_count=0;
@@ -238,13 +246,15 @@ int EventStdinMsg(){
         }
         if(para_count >1){
             strcpy(self_data->tmpUserName,para[1]);
+        }else{
+            strcpy(self_data->tmpUserName,self_data->confirmUserName);
         }
         ActionConnectServer();
         ActionControlLogin();
         return CONNECT_SERVER;
     }
     else if (!strcmp(para[0],"register")){
-        cout<<"register";
+        cout<<"register 未实现";
     }
     else if (!strcmp(para[0],"msg")){
         int rtn = ActionSendMessageToServer(para[1]);
@@ -270,10 +280,17 @@ int EventStdinMsg(){
         cout<<"change_username";
     }
     else if (!strcmp(para[0],"ls")){
-        cout<<"ls";
+        ActionControlLs();
+        return NORMAL;
     }
-    else if (!strcmp(para[0],"install")){
-        cout<<"install";
+    else if (!strcmp(para[0],"cd")){
+        cout<<"cd";
+    }
+    else if (!strcmp(para[0],"download")){
+        cout<<"download";
+    }
+    else if (!strcmp(para[0],"upload")){
+        cout<<"upload";
     }
     else{
         cout<<"Invalid command:,'"<<para[0]<<R"('try to use 'help')"<<endl;
@@ -288,6 +305,56 @@ void BaseActionInterrupt(){
     cout<<"\033[31m<interrupt⬇>\033[0m";
 }
 
+//region 编辑help_doc
+struct help_doc{
+    const char * cmd_name = nullptr;
+    const char * cmd_description = nullptr;
+    const char * cmd_pattern = nullptr;
+}client_help[]={
+        {"login",
+         "login            连接到服务器并使用账号密码登录",
+         "login <username> <password>\n*登录成功与否会给予反馈"},
+
+        {"logout",
+         "logout           登出",
+         "logout"},
+
+        {"register",
+         "register         连接到服务器并尝试使用账号密码注册",
+         "register <username> <password>\n*注册成功与否会给予反馈"},
+
+        {"msg",
+         "msg              发送一条信息到服务器，默认广播给所有人",
+         "msg [-t <username>] <your message>\n*发送消息 如果消息包括空格请用双引号(英文)包围"},
+
+        {"change_password",
+         "change_password  更改密码",
+         "change_password <old_password> <new_password>"},
+
+        {"change_username",
+         "change_username  更改用户名（若数据库没有重复的用户名）",
+         "change_username <new username>\n*登录后方可修改，修改成功与否会给予反馈"},
+
+        {"ls",
+         "ls               查看服务器自己文件夹的内容",
+         "ls 查看当前目录下的内容"},
+
+        {"cd",
+         "cd               进入指定目录",
+         "cd path"},
+
+        {"download",
+         "download         下载指定文件到本地",
+         "download <file_path>\n*成功与否会给予反馈"},
+
+        {"upload",
+         "upload           上传指定文件",
+         "upload <file_path>\n*成功与否会给予反馈"},
+
+        {},//结尾的判据
+};
+//endregion
+
 int ActionPrintConsoleHelp(const char* first_para = nullptr){
 #if DEBUG_LEVEL >0
     cout<<"[DEBUG]: ActionPrintConsoleHelp"<<endl;
@@ -295,53 +362,24 @@ int ActionPrintConsoleHelp(const char* first_para = nullptr){
     cout<<"[help]: ";
     if(first_para==nullptr){
         //region 可用的指令
-        cout<<"可使用的指令如下:(区分大小写)\n"
-              "login            连接到服务器并使用账号密码登录\n"
-              "logout           登出\n"
-              "register         连接到服务器并尝试使用账号密码注册\n"
-              "msg              发送一条信息到服务器，默认广播给所有人\n"
-              "change_password  更改密码\n"
-              "change_username  更改用户名（若数据库没有重复的用户名）\n"
-              "ls               查看服务器自己文件夹的内容\n"
-              "install          下载指定文件"
-              "输入 help [命令符号]查看每条指令的具体使用方法\n";
-        //endregion
+        cout<<"可使用的指令如下:(区分大小写)\n";
+        cout<<sizeof(client_help);
+        for(int i = 0;client_help[i].cmd_name!= nullptr;i++){
+            cout<<client_help[i].cmd_description<<endl;
+        }
+        cout<<"输入 help [命令符号]查看每条指令的具体使用方法"<<endl;
+        return 0;
     }
-        //region 指令详解
-    else if (!strcmp(first_para,"login")){
-        cout<<""
-              "login <username> <password>\n"
-              "*登录成功与否会给予反馈\n";
-    } else if (!strcmp(first_para,"logout")){
-        cout<<""
-              "logout\n"
-              "";
-    } else if (!strcmp(first_para,"register")){
-        cout<<""
-              "register <username> <password>\n"
-              "*注册成功与否会给予反馈，注册成功送一个文件夹(划掉\n";
-    }else if (!strcmp(first_para,"msg")){
-        cout<<""
-              "msg [-t <username>] <your message>\n"
-              "*发送消息 如果消息包括空格请用双引号(英文)包围\n";
-    }else if (!strcmp(first_para,"change_password")){
-        cout<<""
-              "change_password <old_password> <new_password>\n"
-              "";//大概会调用两次CHAP 一次验证old_password 一次用异或取出密码（这绝对算作弊吧）
-    }else if (!strcmp(first_para,"change_username")){
-        cout<<""
-              "change_username <new username>\n"
-              "*修改成功与否会给予反馈\n";//大概会调用两次CHAP 一次验证old_password 一次用异或取出密码（这绝对算作弊吧）
-    }else if (!strcmp(first_para,"ls")){
-        cout<<"ls 暂未实现\n";
-    }else if (!strcmp(first_para,"install")){
-        cout<<"install 暂未实现\n";
-    }else{
-        cout<<"该指令无效\n";
+    else{
+        for(int i = 0;client_help[i].cmd_name!= nullptr;i++){
+            if(!strcmp(first_para,client_help[i].cmd_name)){
+                cout<<client_help[i].cmd_pattern<<endl;
+                return 0;
+            }
+        }
+        cout<<"该指令无效"<<endl;
+        return 1;
     }
-    //endregion
-    cout.flush();
-    return 0;
 };
 
 unsigned int ActionCHAPResponse(const char* packet_total){
@@ -373,7 +411,7 @@ unsigned int ActionCHAPResponse(const char* packet_total){
     send_packet_header->chap_proto.sequence+=1;
     memcpy(send_packet_data->chap_response.userName, self_data->tmpUserName,USERNAME_LENGTH);
     send_packet_data->chap_response.answer = htonl(answer^self_data->password);
-    send(conn_client_fd,send_packet_total, HEADER_SIZE+offsetof(data,chap_response.other)+1,0);
+    send(conn_client_fd,send_packet_total, HEADER_SIZE+sizeof(send_packet_data->chap_response),0);
     return answer;
 };
 
@@ -426,7 +464,7 @@ int ActionControlLogin(){
         self_data->state = LoginTry;
         return 0;
     } else{
-        cout<< "can not send packet to server in state <Offline>" <<endl;
+        cout<< "can not send <login> packet to server in state <Offline>" <<endl;
         return 1;
     }
 
@@ -452,14 +490,30 @@ int ActionSendMessageToServer(const char* message){
     }
 }
 
+int ActionControlLs(){
+    if(self_data->state == Online){
+        char packet_total[HEADER_SIZE+BUFFER_SIZE]={0};
+        auto* packet_header = (header*)packet_total;
+        auto* packet_data = (data*)(packet_total+HEADER_SIZE);
+        packet_header->proto=ProtoCTL;
+        packet_header->ctl_proto.ctl_code = CTLLs;
+        send(conn_client_fd,packet_total,HEADER_SIZE,0);
+        return 0;
+    }
+    else{
+        cout<< "can only send ls to server in state <Online>" <<endl;
+        return -1;
+    }
+}
+//int ActionControlCd(){
+//
+//}
 int main(int argc, const char * argv[]){
 
     struct sockaddr_in my_addr{AF_INET};
     struct sockaddr_in server_addr{};
 
     if (argc!=3) {
-//        std::cout<<argc;
-//        std::cout<<"Usage:"<<argv[0]<<"127.0.0.1 60000"<<endl;
         my_addr.sin_family = AF_INET;
         my_addr.sin_addr.s_addr=inet_addr("127.0.0.1");
         srand(clock());
@@ -614,7 +668,6 @@ int main(int argc, const char * argv[]){
             for (auto client_iter:*gui_client_list){
                 FD_SET(client_iter.fd,client_fd_set);
             }
-
         }
 
         else{

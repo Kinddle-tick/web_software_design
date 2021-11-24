@@ -18,6 +18,7 @@
 #include<sys/stat.h>
 #include<fcntl.h>
 #include<cerrno>
+#include <dirent.h>
 
 #define USERNAME_LENGTH 30
 typedef int SOCKET_ID;
@@ -25,7 +26,7 @@ typedef char USER_NAME[USERNAME_LENGTH];
 
 #define HEADER_SIZE 20
 #define BUFFER_SIZE 1004
-#define SER_PORT 11285
+#define SER_PORT 11282
 
 enum State : char {
     Offline = 0,//既可以标志客户端自身 也可以作为服务端标记客户端的凭据
@@ -41,6 +42,8 @@ enum State : char {
     CTLRegister,
     CTLChangePassword,
     CTLChangeUsername,
+    CTLLs,
+    CTLCd,
     CTLUnregistered,
 };
 enum Protocol : char{
@@ -83,11 +86,13 @@ union data{
     struct {
         USER_NAME userName;
         uint32_t answer;
-        char other;
     }chap_response;
     struct {
         USER_NAME userName;
     }ctl_login;
+    struct {
+        char chr[BUFFER_SIZE];
+    }ctl_ls;
 };
 
 class Base_console {
