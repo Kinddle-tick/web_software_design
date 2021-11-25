@@ -504,15 +504,17 @@ int ActionControlLogin(){
 
 int ActionSendMessageToServer(const char* message){
     if(self_data->state == Online) {
-        char send_message_body[HEADER_SIZE + BUFFER_SIZE]={0};
-        auto * send_message_header=(header*)send_message_body;
+        char send_message_packet[HEADER_SIZE + BUFFER_SIZE]={0};
+        auto * send_message_header=(header*)send_message_packet;
+        auto * send_message_data = (data *)(send_message_packet+HEADER_SIZE);
 
         send_message_header->msg_proto.proto = ProtoMsg;
-        strcpy(send_message_body+HEADER_SIZE,message);
+        strcpy(send_message_data->msg_general.msg_data, message);
 
-        cout<<"[send->server] message send to server:"<<send_message_body+HEADER_SIZE<<endl;
-        send_message_header->msg_proto.data_length = strlen(send_message_body + HEADER_SIZE);
-        send(conn_client_fd, send_message_body, HEADER_SIZE + send_message_header->msg_proto.data_length, 0);
+        cout << "[send->server] message send to server:" << send_message_data->msg_general.msg_data << endl;
+        send_message_header->msg_proto.data_length = strlen(send_message_data->msg_general.msg_data)
+                + sizeof(send_message_data->msg_general.userName);
+        send(conn_client_fd, send_message_packet, HEADER_SIZE + send_message_header->msg_proto.data_length, 0);
         cue_flag = true;
         return 0;
     }

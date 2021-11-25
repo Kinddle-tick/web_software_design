@@ -11,7 +11,7 @@
 #include <arpa/inet.h>  // inet_addr()
 #include <unistd.h>     //close()
 #include <iostream>
-#include <string>
+#include <cstring>
 #include <fstream>
 #include <random>
 
@@ -29,7 +29,7 @@ typedef char USER_NAME[USERNAME_LENGTH];
 
 #define HEADER_SIZE 20
 #define BUFFER_SIZE 1004
-#define SER_PORT 11289
+#define SER_PORT 11290
 #define USER_PATH_MAX_LENGTH (512- USERNAME_LENGTH - sizeof(unsigned int))
 
 enum State : char {
