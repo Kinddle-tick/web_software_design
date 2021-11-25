@@ -19,6 +19,9 @@
 #include<fcntl.h>
 #include<cerrno>
 #include <dirent.h>
+#include <cstdio>
+#include <cstdlib>
+//#include <sys/time.h>
 
 #define USERNAME_LENGTH 30
 typedef int SOCKET_ID;
@@ -26,7 +29,7 @@ typedef char USER_NAME[USERNAME_LENGTH];
 
 #define HEADER_SIZE 20
 #define BUFFER_SIZE 1004
-#define SER_PORT 11285
+#define SER_PORT 11287
 #define USER_PATH_MAX_LENGTH (512- USERNAME_LENGTH - sizeof(unsigned int))
 
 enum State : char {
@@ -72,27 +75,36 @@ union header{
     uint8_t proto;
     struct {
         uint8_t proto;
-        uint8_t zero[HEADER_SIZE - 1];
+        uint8_t zero_code[3];
+        uint32_t data_length;
+        uint8_t zero[HEADER_SIZE - 8];
     }base_proto;
     struct {
         uint8_t proto;
         uint8_t chap_code;
         uint8_t one_data_size;
-        uint8_t zero;
+        uint8_t zero_code;
         uint32_t data_length;
+        uint32_t number_count;
         uint32_t sequence;
     }chap_proto;
     struct {
         uint8_t proto;
+        uint8_t zero_code[3];
+        uint32_t data_length;
     }msg_proto;
     struct{
         uint8_t proto = ProtoCTL;
         uint8_t ctl_code;
+        uint8_t zero_code[2];
+        uint32_t data_length;
     }ctl_proto;
     struct{
         uint8_t proto = ProtoFile;
         uint8_t file_code;
+        uint8_t zero_code[2];
         uint32_t data_length;
+        uint32_t frame_transport_length;
         uint32_t session_id;
         uint32_t sequence;
     }file_proto;
@@ -103,6 +115,10 @@ union data{
         USER_NAME userName;
         uint32_t answer;
     }chap_response;
+    struct{
+        USER_NAME userName;
+        char msg_data[BUFFER_SIZE - sizeof(USER_NAME)];
+    }msg_general;
     struct {
         USER_NAME userName;
     }ctl_login;
@@ -114,6 +130,7 @@ union data{
     }file_request;
     struct {
         char file_path[BUFFER_SIZE];
+        clock_t init_clock;
     }file_response;
     struct {
         uint32_t CRC_32;

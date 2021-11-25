@@ -12,6 +12,7 @@ struct file_session{
     uint32_t session_id;
     uint32_t sequence;
     int file_fd;
+    clock_t init_clock;
 };
 
 struct fd_info{
@@ -35,6 +36,8 @@ int conn_client_fd,gui_server_fd;
 using namespace std;
 int max_fd=1;
 bool cue_flag = true;
+//int logger_fd= 0;
+//FILE *logger_fptr = nullptr;
 list<fd_info>* gui_client_list;
 list<file_session>* file_list;
 fd_set * client_fd_set;
@@ -67,12 +70,12 @@ ssize_t EventServerMsg() {
     cout<<"[DEBUG]: EventStdinMsg"<<endl;
 #endif
 #define SERVER_SHUTDOWN 0
-    char receive_message[HEADER_SIZE + BUFFER_SIZE];
-    bzero(receive_message, HEADER_SIZE + BUFFER_SIZE);
-    ssize_t byte_num = read(conn_client_fd, receive_message, BUFFER_SIZE + HEADER_SIZE);
-    if (byte_num > 0) {
-        auto* packet_header = (header *)(receive_message);
+    char receive_message[HEADER_SIZE + BUFFER_SIZE]={0};
+    auto* packet_header = (header *)(receive_message);
+    ssize_t byte_num = read(conn_client_fd, receive_message, HEADER_SIZE);
+    byte_num += read(conn_client_fd,receive_message+HEADER_SIZE,packet_header->base_proto.data_length);
 
+    if (byte_num > 0) {
         //region *对服务端收包的处理
         switch (packet_header->proto) {
             case ProtoCTL:
@@ -87,7 +90,9 @@ ssize_t EventServerMsg() {
                         cout<<"\n"<<(((data *)(receive_message+HEADER_SIZE))->ctl_ls.chr);
                         cue_flag = true;
                         return ProtoCTL|CTLLs<<2;
-
+                    default:
+                        cout<<"Invalid CTL packet"<<endl;
+                        return -1;
                 }
                 break;
             case ProtoMsg:
@@ -96,7 +101,8 @@ ssize_t EventServerMsg() {
                 // 广播到所有客户端（gui）
                 for (auto & client_point : *gui_client_list) {
                     cout<<"[sur-rcv] send message to client("<<client_point.nickname<<").socket_fd = "<<client_point.fd<<endl;
-                    send(client_point.fd, receive_message, strlen(receive_message + HEADER_SIZE) + HEADER_SIZE + 1, 0);
+                    packet_header->base_proto.data_length = strlen(receive_message + HEADER_SIZE);
+                    send(client_point.fd, receive_message, HEADER_SIZE + 1, 0);
                 }
                 cue_flag = true;
                 return ProtoMsg;
@@ -122,6 +128,7 @@ ssize_t EventServerMsg() {
                     default:
                         cout<<("[sur-rcv] Invalid CHAP_CODE\n");
                         cue_flag = true;
+                        return -1;
                 }
                 break;
             case ProtoFile:
@@ -143,14 +150,17 @@ ssize_t EventServerMsg() {
                 cue_flag = true;
                 return ProtoFile;
             default:
-                cout<<("[sur-rcv] Invalid proto,drop the packet...");
+                printf("[sur-rcv] Invalid proto,with number: %d,",packet_header->proto);
+                cout<<"drop the packet...";
                 cue_flag = true;
+                return -1;
         }
         //endregion
 
     }
     else if(byte_num < 0){
         cout<<("[sur-rcv] receive error!\n");
+        return -1;
     }
     else{
         FD_CLR(conn_client_fd, client_fd_set);
@@ -161,10 +171,12 @@ ssize_t EventServerMsg() {
             BaseActionInterrupt();
             cout<<("\n**server exit")<<endl;
             cue_flag = true;
-            send(client_point.fd, receive_message+HEADER_SIZE, strlen(receive_message+HEADER_SIZE)+1, 0);
+            packet_header->base_proto.data_length = strlen(receive_message+HEADER_SIZE);
+            send(client_point.fd, receive_message+HEADER_SIZE, packet_header->base_proto.data_length, 0);
         }
+        return SERVER_SHUTDOWN;
     }
-    return SERVER_SHUTDOWN;
+    return -1;
 }
 
 //int EventServerQuit(){
@@ -431,7 +443,7 @@ unsigned int ActionCHAPResponse(const char* packet_total){
         uint16_t uint16;
         uint8_t uint8;
     };
-    for(int i = 0;i<packet_header->chap_proto.data_length;i++){
+    for(int i = 0;i<packet_header->chap_proto.number_count; i++){
         num tmp_num{};
         memcpy(&tmp_num, packet_total + HEADER_SIZE + i * (1 << one_data_size), 1 << one_data_size);
         answer += one_data_size==0 ? tmp_num.uint8 : 0;
@@ -447,7 +459,8 @@ unsigned int ActionCHAPResponse(const char* packet_total){
     send_packet_header->chap_proto.sequence+=1;
     memcpy(send_packet_data->chap_response.userName, self_data->tmpUserName,USERNAME_LENGTH);
     send_packet_data->chap_response.answer = htonl(answer^self_data->password);
-    send(conn_client_fd,send_packet_total, HEADER_SIZE+sizeof(send_packet_data->chap_response),0);
+    send_packet_header->chap_proto.data_length = sizeof(send_packet_data->chap_response);
+    send(conn_client_fd,send_packet_total, HEADER_SIZE+send_packet_header->chap_proto.data_length,0);
     return answer;
 };
 
@@ -496,7 +509,8 @@ int ActionControlLogin(){
         packet_header->proto = ProtoCTL;
         packet_header->ctl_proto.ctl_code = CTLLogin;
         memcpy(packet_data->ctl_login.userName, self_data->tmpUserName,USERNAME_LENGTH);
-        send(conn_client_fd,packet_total,HEADER_SIZE+sizeof(packet_data->ctl_login)+1,0);
+        packet_header->ctl_proto.data_length = sizeof(packet_data->ctl_login);
+        send(conn_client_fd,packet_total,HEADER_SIZE+packet_header->ctl_proto.data_length,0);
         self_data->state = LoginTry;
         return 0;
     } else{
@@ -515,7 +529,8 @@ int ActionSendMessageToServer(const char* message){
         strcpy(send_message_body+HEADER_SIZE,message);
 
         cout<<"[send->server] message send to server:"<<send_message_body+HEADER_SIZE<<endl;
-        send(conn_client_fd, send_message_body, strlen(send_message_body + HEADER_SIZE) + HEADER_SIZE + 1, 0);
+        send_message_header->msg_proto.data_length = strlen(send_message_body + HEADER_SIZE);
+        send(conn_client_fd, send_message_body, HEADER_SIZE + send_message_header->msg_proto.data_length, 0);
         cue_flag = true;
         return 0;
     }
@@ -533,7 +548,8 @@ int ActionControlLs(){
         auto* packet_data = (data*)(packet_total+HEADER_SIZE);
         packet_header->proto=ProtoCTL;
         packet_header->ctl_proto.ctl_code = CTLLs;
-        send(conn_client_fd,packet_total,HEADER_SIZE,0);
+        packet_header->ctl_proto.data_length = 0;
+        send(conn_client_fd,packet_total,HEADER_SIZE+packet_header->ctl_proto.data_length,0);
         return 0;
     }
     else{
@@ -551,8 +567,8 @@ int ActionFileRequest(const char* file_path){
         packet_header->file_proto.file_code = FileRequest;
 
         strcpy(packet_data->file_request.file_path,file_path);
-
-        send(conn_client_fd,packet_total,HEADER_SIZE+ strlen(file_path)+1,0);
+        packet_header->file_proto.data_length = strlen(file_path);
+        send(conn_client_fd,packet_total,HEADER_SIZE+packet_header->file_proto.data_length,0);
         return 0;
     }
     else{
@@ -583,7 +599,8 @@ int ActionFileResponseReceived(const char * received_packet_total){
         }
         file_session tmp_session{.session_id=received_packet_header->file_proto.session_id,
                                  .sequence = received_packet_header->file_proto.sequence,
-                                 .file_fd = tmp_fd};
+                                 .file_fd = tmp_fd,
+                                 .init_clock = received_packet_data->file_response.init_clock};
         file_list->push_back(tmp_session);
         ActionFileACKSend(tmp_session.session_id,tmp_session.sequence);
         cout<<"已准备好接受文件传输"<<endl;
@@ -603,11 +620,15 @@ int ActionFileTransportingReceived(const char* received_packet_total){
         if (file_ss_iter.session_id==received_packet_header->file_proto.session_id){
             if(file_ss_iter.sequence == received_packet_header->file_proto.sequence){
                 ssize_t size = write(file_ss_iter.file_fd,received_packet_data->file_transport.file_data,
-                                     received_packet_header->file_proto.data_length);
+                                     received_packet_header->file_proto.frame_transport_length);
                 if(size >0){
+                    file_ss_iter.sequence+=size;
+//                    printf("%ld",clock()-file_ss_iter.init_clock);
+
+//                    fprintf(logger_fptr,"fd:%ld完成了一轮确收",clock()-file_ss_iter.init_clock);
+//                    cout<<"session:"<<received_packet_header->file_proto.session_id<<" 完成了一次确收"<<endl;
                     ActionFileACKSend(received_packet_header->file_proto.session_id,
                                       received_packet_header->file_proto.sequence+size);
-                    file_ss_iter.sequence+=size;
                     return 0;
                 }
                 else{
@@ -615,6 +636,7 @@ int ActionFileTransportingReceived(const char* received_packet_total){
                     return -1;
                 }
             }
+            cout<<"找到对应的session,但是sequence不相同"<<endl;
         }
     }
     cout<<"没有找到session和sequence均符合条件的会话;"<<endl;
@@ -622,12 +644,14 @@ int ActionFileTransportingReceived(const char* received_packet_total){
 };
 
 int ActionFileACKSend(uint32_t session_id=0,uint32_t sequence=0){
-    header send_packet_header{.file_proto{.file_code=FileAck,.data_length=0,.session_id=session_id,.sequence=sequence}};
-    send(conn_client_fd,&send_packet_header,HEADER_SIZE,0);
+    header send_packet_header{.file_proto{.file_code=FileAck,.frame_transport_length=0,.session_id=session_id,.sequence=sequence}};
+    send_packet_header.file_proto.data_length = 0;
+    send(conn_client_fd,&send_packet_header + send_packet_header.file_proto.data_length,HEADER_SIZE,0);
     return 0;
 }
 
 int ActionFileErrorSend(uint32_t session_id=0,uint32_t sequence_id=0){
+    cout<<"fileErrorSend"<<endl;
     return 0;
 }
 int ActionFileEndReceived(const char* received_packet_total){
@@ -641,16 +665,6 @@ int ActionFileEndReceived(const char* received_packet_total){
         }
     }
     cout<<"没有在列表里找到相应的文件"<<endl;
-//    for(auto &file_ss_iter:* file_list){
-//        if(file_ss_iter.session_id == received_packet_header->file_proto.session_id){
-//            if(file_ss_iter.sequence == received_packet_header->file_proto.sequence){
-//                cout<<"找到该文件并释放fd成功"<<endl;
-//                close(file_ss_iter.file_fd);
-//                return 0;
-//            }
-//        }
-//    }
-//    cout<<"没有找到session和sequence均符合条件的会话;"<<endl;
     return -1;
 };
 
@@ -706,6 +720,8 @@ int main(int argc, const char * argv[]){
     strcat(self_data->client_data_dir_now,self_data->confirmUserName);
     bool select_flag = true,stdin_flag= true;
     struct timeval ctl_time{2700,0};
+//    logger_fd = open("client_logger",O_TRUNC|O_WRONLY|O_CREAT,S_IXUSR|S_IWUSR|S_IRUSR);
+//    logger_fptr = fdopen(logger_fd,"w");
 
     /** region #<折叠代码块># select前，将 ser_fdset 初始化 */
     FD_ZERO(client_fd_set);
@@ -821,7 +837,7 @@ int main(int argc, const char * argv[]){
 
         else{
             perror("select failure");
-            break;
+            continue;
         }
     }
 
