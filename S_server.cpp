@@ -405,7 +405,8 @@ int ActionFileResponse(const char* receive_packet_total, client_session* client)
         send_packet_data->file_response.init_clock = tmp_session.tick;
         send_packet_header->proto = ProtoFile;
         send_packet_header->file_proto.file_code=FileResponse;
-        send_packet_header->file_proto.data_length =  strlen(send_packet_data->file_response.file_path);
+        send_packet_header->file_proto.data_length =  strlen(send_packet_data->file_response.file_path)
+                +sizeof(send_packet_data->file_response.init_clock) ;
         send(client->socket_fd, send_packet_total,HEADER_SIZE+send_packet_header->file_proto.data_length, 0);
 
         cout<<"试图发送文件:"<<request_path<<endl;
