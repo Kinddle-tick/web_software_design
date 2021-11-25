@@ -57,6 +57,7 @@ int ActionFileTransportingReceived(const char*);
 int ActionFileACKSend(uint32_t, uint32_t);
 int ActionFileErrorSend(uint32_t, uint32_t);
 int ActionFileEndReceived(const char*);
+int ActionMessageFromServer(const char*);
 //region delay
 //void Delay(int time_ms)//time单位ms
 //{
@@ -97,13 +98,7 @@ ssize_t EventServerMsg() {
                 break;
             case ProtoMsg:
                 BaseActionInterrupt();
-                cout<<"\n[sur-rcv] message form server("<<conn_client_fd<<"):\033[34m"<<receive_message + HEADER_SIZE<<"\033[0m"<<endl;
-                // 广播到所有客户端（gui）
-                for (auto & client_point : *gui_client_list) {
-                    cout<<"[sur-rcv] send message to client("<<client_point.nickname<<").socket_fd = "<<client_point.fd<<endl;
-                    packet_header->base_proto.data_length = strlen(receive_message + HEADER_SIZE);
-                    send(client_point.fd, receive_message, HEADER_SIZE + 1, 0);
-                }
+                ActionMessageFromServer(receive_message);
                 cue_flag = true;
                 return ProtoMsg;
             case ProtoCHAP:
@@ -554,7 +549,7 @@ int ActionFileRequest(const char* file_path){
         packet_header->file_proto.file_code = FileRequest;
 
         strcpy(packet_data->file_request.file_path,file_path);
-        packet_header->file_proto.data_length = strlen(file_path);
+        packet_header->file_proto.data_length = strlen(file_path)+sizeof(packet_data->file_request.init_clock);
         send(conn_client_fd,packet_total,HEADER_SIZE+packet_header->file_proto.data_length,0);
         return 0;
     }
@@ -655,6 +650,19 @@ int ActionFileEndReceived(const char* received_packet_total){
     return -1;
 };
 
+int ActionMessageFromServer(const char* receive_packet_total){
+    auto* packet_header = (header*)receive_packet_total;
+    auto* packet_data  = (data*)(receive_packet_total+HEADER_SIZE);
+    cout<<"\n[sur-rcv] message form server("<<conn_client_fd<<"):\033[34m"<<packet_data->msg_general.msg_data<<"\033[0m"<<endl;
+
+    // 广播到所有客户端（gui）
+    for (auto & client_point : *gui_client_list) {
+        cout<<"[sur-rcv] send message to client("<<client_point.nickname<<").socket_fd = "<<client_point.fd<<endl;
+        packet_header->base_proto.data_length = strlen(packet_data->msg_general.msg_data)+sizeof(USER_NAME);
+        send(client_point.fd, receive_packet_total, HEADER_SIZE + packet_header->base_proto.data_length, 0);
+    }
+    return 0;
+};
 
 int main(int argc, const char * argv[]){
 
@@ -703,7 +711,8 @@ int main(int argc, const char * argv[]){
     client_fd_set = new fd_set;
     gui_client_list = new list<fd_info>;
     file_list = new list<file_session>;
-    self_data = new client_self_data{.confirmUserName ="default",.password = 12345,.state = Offline};
+    self_data = new client_self_data{.password = 12345,.state = Offline};
+    strcpy(self_data->confirmUserName,"default");
     strcat(self_data->client_data_dir_now,self_data->confirmUserName);
     bool select_flag = true,stdin_flag= true;
     struct timeval ctl_time{2700,0};

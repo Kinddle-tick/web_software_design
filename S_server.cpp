@@ -95,7 +95,10 @@ int EventNewClient(){
     int client_sock_fd = accept(conn_server_fd, (struct sockaddr *)&client_address, &address_len);
     if(client_sock_fd > 0)
     {
-        client_list->push_back(client_session{.socket_fd = client_sock_fd,.nickname = "Unknown",.now_path="",.state = Offline,.tick=clock()});
+        client_session tmp_cs = {.socket_fd = client_sock_fd,
+                                 .state = Offline,.tick=clock()};
+        strcpy(tmp_cs.nickname,"Unknown");
+        client_list->push_back(tmp_cs);
         printf("client-Offline joined in socket_fd(%d)!\n",client_sock_fd);
         fflush(stdout);
     }
@@ -199,6 +202,7 @@ int ActionMsgProcessing(const char* receive_packet_total, client_session* client
         }
 
     }
+    return 0;
 }
 
 int ActionControlLogin(const char* packet_total, client_session* client){
@@ -372,6 +376,7 @@ int ActionFileResponse(const char* receive_packet_total, client_session* client)
     auto* receive_packet_data = (data *)(receive_packet_total+HEADER_SIZE);
     cout<<"请求文件名:"<<receive_packet_data->file_request.file_path<<endl;
     cout<<"当前目录:"<<client->now_path<<endl;
+
     char request_path[USER_PATH_MAX_LENGTH]={0};
     strcpy(request_path,client->now_path);
     strcat(request_path,"/");
@@ -552,7 +557,9 @@ int main(int agrc,char **argv){
 
     if(user_list->empty()){
         printf("Warning: using default user_list...");
-        user_list->push_back( user_info{.user_name="default",.password=12345});
+        user_info tmp_ui = {.password=12345};
+        strcpy(tmp_ui.user_name,"default");
+        user_list->push_back(tmp_ui);
     }
     user_sheet_istream.close();
     //endregion

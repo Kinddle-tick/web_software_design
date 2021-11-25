@@ -29,7 +29,7 @@ typedef char USER_NAME[USERNAME_LENGTH];
 
 #define HEADER_SIZE 20
 #define BUFFER_SIZE 1004
-#define SER_PORT 11287
+#define SER_PORT 11289
 #define USER_PATH_MAX_LENGTH (512- USERNAME_LENGTH - sizeof(unsigned int))
 
 enum State : char {
@@ -126,11 +126,12 @@ union data{
         char chr[BUFFER_SIZE];
     }ctl_ls;
     struct {
-        char file_path[BUFFER_SIZE];
+        clock_t init_clock;
+        char file_path[BUFFER_SIZE - sizeof(clock_t)];
     }file_request;
     struct {
-        char file_path[BUFFER_SIZE];
         clock_t init_clock;
+        char file_path[BUFFER_SIZE - sizeof(clock_t)];
     }file_response;
     struct {
         uint32_t CRC_32;
