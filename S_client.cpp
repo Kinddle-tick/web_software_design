@@ -179,19 +179,6 @@ ssize_t EventServerMsg() {
     return -1;
 }
 
-//int EventServerQuit(){
-//#if DEBUG_LEVEL >0
-//    cout<<"[DEBUG]: EventServerQuit"<<endl;
-//#endif
-//    char recv_msg[HEADER_SIZE+BUFFER_SIZE];
-//    strcpy(recv_msg+HEADER_SIZE,"server exit");
-//    for(auto & client_point : *gui_client_list){
-//        cout<<("**server exit");
-//        send(client_point.socket_fd, recv_msg+HEADER_SIZE, strlen(recv_msg+HEADER_SIZE)+1, 0);
-//    }
-//    return 0;
-//}
-
 int EventNewGui(){
 #if DEBUG_LEVEL >0
     cout<<"[DEBUG]: EventNewGui"<<endl;
