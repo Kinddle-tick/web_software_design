@@ -352,7 +352,7 @@ int ActionFileResponse(const char* receive_packet_total, client_session* client)
         send_packet_header->file_proto.session_id =  htonl(tmp_session.session_id);
         file_list->push_back(tmp_session);
         strcpy(send_packet_data->file_response.file_path,receive_packet_data->file_request.file_path);
-        send_packet_data->file_response.init_clock = tmp_session.tick;
+        send_packet_data->file_response.init_clock = htonl(tmp_session.tick);
         send_packet_header->proto = kProtoFile;
         send_packet_header->file_proto.file_code=kFileResponse;
         send_packet_header->file_proto.data_length =  htonl(strlen(send_packet_data->file_response.file_path)
@@ -379,7 +379,7 @@ int ActionFileTranslating(FileSession* file_ss , client_session* client){
     send_packet_header->file_proto.file_code=kFileTransporting;
     send_packet_header->file_proto.session_id = htonl(file_ss->session_id);
     send_packet_header->file_proto.sequence = htonl(file_ss->sequence);
-    send_packet_data->file_transport.CRC_32 = 0; //先不写
+    send_packet_data->file_transport.CRC_32 = htonl(0); //先不写
 
     file_ss->sequence +=  ntohl(send_packet_header->file_proto.frame_transport_length);
     file_ss->state = kFileTransporting;

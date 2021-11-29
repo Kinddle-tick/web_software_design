@@ -499,7 +499,7 @@ int ActionFileResponseReceived(const char * received_packet_total){
         FileSession tmp_session{.session_id=ntohl(received_packet_header->file_proto.session_id),
                 .sequence = ntohl(received_packet_header->file_proto.sequence),
                 .file_fd = tmp_fd,
-                .init_clock = received_packet_data->file_response.init_clock,
+                .init_clock = ntohl(received_packet_data->file_response.init_clock),
                 .init_sequence = ntohl(received_packet_header->file_proto.sequence)};
         file_list->push_back(tmp_session);
         ActionFileAckSend(tmp_session.session_id, tmp_session.sequence);
@@ -525,7 +525,6 @@ int ActionFileTransportingReceived(const char* received_packet_total){
                 if(size >0){
                     file_ss_iter.sequence+=size;
 //                    printf("%ld",clock()-file_ss_iter.init_clock);
-
 //                    fprintf(logger_fptr,"fd:%ld完成了一轮确收",clock()-file_ss_iter.init_clock);
 //                    cout<<"session:"<<ntohl(received_packet_header->file_proto.session_id)<<" 完成了一次确收"<<endl;
                     ActionFileAckSend(file_ss_iter.session_id,
