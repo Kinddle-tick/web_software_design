@@ -60,7 +60,7 @@ ssize_t EventServerMessage() {
     char receive_message[kHeaderSize + kBufferSize]={0};
     auto* packet_header = (header *)(receive_message);
     ssize_t byte_num = read(conn_client_fd, receive_message, kHeaderSize);
-    byte_num += read(conn_client_fd, receive_message + kHeaderSize, packet_header->base_proto.data_length);
+    byte_num += read(conn_client_fd, receive_message + kHeaderSize, ntohl(packet_header->base_proto.data_length));
 
     if (byte_num > 0) {
         //region *对服务端收包的处理
@@ -150,8 +150,8 @@ ssize_t EventServerMessage() {
             BaseActionInterrupt();
             cout<<("\n**server exit")<<endl;
             cue_flag = true;
-            packet_header->base_proto.data_length = strlen(receive_message + kHeaderSize);
-            send(client_point.fd, receive_message + kHeaderSize, packet_header->base_proto.data_length, 0);
+            packet_header->base_proto.data_length = htonl(strlen(receive_message + kHeaderSize));
+            send(client_point.fd, receive_message + kHeaderSize, ntohl(packet_header->base_proto.data_length), 0);
         }
         return kServerShutdown;
     }
@@ -359,7 +359,7 @@ int ActionChapResponse(const char* packet_total){
         uint16_t uint16;
         uint8_t uint8;
     };
-    for(int i = 0;i<packet_header->chap_proto.number_count; i++){
+    for(int i = 0;i<ntohl(packet_header->chap_proto.number_count); i++){
         num tmp_num{};
         memcpy(&tmp_num, packet_total + kHeaderSize + i * (1 << one_data_size), 1 << one_data_size);
         answer += one_data_size==0 ? tmp_num.uint8 : 0;
@@ -372,11 +372,11 @@ int ActionChapResponse(const char* packet_total){
     auto* send_packet_data=(data*)(send_packet_total + kHeaderSize);
     memcpy(send_packet_header, packet_header, kHeaderSize);
     send_packet_header->chap_proto.chap_code=kChapResponse;
-    send_packet_header->chap_proto.sequence+=1;
+    send_packet_header->chap_proto.sequence= htonl(ntohl(send_packet_header->chap_proto.sequence)+1);
     memcpy(send_packet_data->chap_response.userName, self_data->tmpUserName, kUsernameLength);
     send_packet_data->chap_response.answer = htonl(answer^self_data->password);
-    send_packet_header->chap_proto.data_length = sizeof(send_packet_data->chap_response);
-    send(conn_client_fd, send_packet_total, kHeaderSize + send_packet_header->chap_proto.data_length, 0);
+    send_packet_header->chap_proto.data_length = htonl(sizeof(send_packet_data->chap_response));
+    send(conn_client_fd, send_packet_total, kHeaderSize + ntohl(send_packet_header->chap_proto.data_length), 0);
     return 0;
 }
 
@@ -425,8 +425,8 @@ int ActionControlLogin(){
         packet_header->proto = kProtoControl;
         packet_header->ctl_proto.ctl_code = kControlLogin;
         memcpy(packet_data->ctl_login.userName, self_data->tmpUserName, kUsernameLength);
-        packet_header->ctl_proto.data_length = sizeof(packet_data->ctl_login);
-        send(conn_client_fd, packet_total, kHeaderSize + packet_header->ctl_proto.data_length, 0);
+        packet_header->ctl_proto.data_length = htonl(sizeof(packet_data->ctl_login));
+        send(conn_client_fd, packet_total, kHeaderSize + ntohl(packet_header->ctl_proto.data_length), 0);
         self_data->state = kLoginTry;
         return 0;
     } else{
@@ -443,8 +443,8 @@ int ActionControlLs(){
         auto* packet_data = (data*)(packet_total + kHeaderSize);
         packet_header->proto=kProtoControl;
         packet_header->ctl_proto.ctl_code = kControlLs;
-        packet_header->ctl_proto.data_length = 0;
-        send(conn_client_fd, packet_total, kHeaderSize + packet_header->ctl_proto.data_length, 0);
+        packet_header->ctl_proto.data_length = htonl(0);
+        send(conn_client_fd, packet_total, kHeaderSize + ntohl(packet_header->ctl_proto.data_length), 0);
         return 0;
     }
     else{
@@ -466,8 +466,8 @@ int ActionFileRequestSend(const char* file_path){
         packet_header->file_proto.file_code = kFileRequest;
 
         strcpy(packet_data->file_request.file_path,file_path);
-        packet_header->file_proto.data_length = strlen(file_path)+sizeof(packet_data->file_request.init_clock);
-        send(conn_client_fd, packet_total, kHeaderSize + packet_header->file_proto.data_length, 0);
+        packet_header->file_proto.data_length = htonl(strlen(file_path)+sizeof(packet_data->file_request.init_clock));
+        send(conn_client_fd, packet_total, kHeaderSize + ntohl(packet_header->file_proto.data_length), 0);
         return 0;
     }
     else{
@@ -496,11 +496,11 @@ int ActionFileResponseReceived(const char * received_packet_total){
             perror("文件打开失败");
             return -1;
         }
-        FileSession tmp_session{.session_id=received_packet_header->file_proto.session_id,
-                .sequence = received_packet_header->file_proto.sequence,
+        FileSession tmp_session{.session_id=ntohl(received_packet_header->file_proto.session_id),
+                .sequence = ntohl(received_packet_header->file_proto.sequence),
                 .file_fd = tmp_fd,
                 .init_clock = received_packet_data->file_response.init_clock,
-                .init_sequence = received_packet_header->file_proto.sequence};
+                .init_sequence = ntohl(received_packet_header->file_proto.sequence)};
         file_list->push_back(tmp_session);
         ActionFileAckSend(tmp_session.session_id, tmp_session.sequence);
         cout<<"已准备好接受文件传输"<<endl;
@@ -508,7 +508,8 @@ int ActionFileResponseReceived(const char * received_packet_total){
     }
     else{
         cout<<"需要在线才能进行文件传输"<<endl;
-        ActionFileErrorSend(received_packet_header->file_proto.session_id,received_packet_header->file_proto.sequence);
+        ActionFileErrorSend(ntohl(received_packet_header->file_proto.session_id),
+                            ntohl(received_packet_header->file_proto.sequence));
         return -1;
     }
 }
@@ -517,22 +518,23 @@ int ActionFileTransportingReceived(const char* received_packet_total){
     auto* received_packet_header = (header*)received_packet_total;
     auto* received_packet_data = (data*)(received_packet_total + kHeaderSize);
     for(auto &file_ss_iter :*file_list){
-        if (file_ss_iter.session_id==received_packet_header->file_proto.session_id){
-            if(file_ss_iter.sequence == received_packet_header->file_proto.sequence){
+        if (file_ss_iter.session_id==ntohl(received_packet_header->file_proto.session_id)){
+            if(file_ss_iter.sequence == ntohl(received_packet_header->file_proto.sequence)){
                 ssize_t size = write(file_ss_iter.file_fd,received_packet_data->file_transport.file_data,
-                                     received_packet_header->file_proto.frame_transport_length);
+                                     ntohl(received_packet_header->file_proto.frame_transport_length));
                 if(size >0){
                     file_ss_iter.sequence+=size;
 //                    printf("%ld",clock()-file_ss_iter.init_clock);
 
 //                    fprintf(logger_fptr,"fd:%ld完成了一轮确收",clock()-file_ss_iter.init_clock);
-//                    cout<<"session:"<<received_packet_header->file_proto.session_id<<" 完成了一次确收"<<endl;
-                    ActionFileAckSend(received_packet_header->file_proto.session_id,
-                                      received_packet_header->file_proto.sequence + size);
+//                    cout<<"session:"<<ntohl(received_packet_header->file_proto.session_id)<<" 完成了一次确收"<<endl;
+                    ActionFileAckSend(file_ss_iter.session_id,
+                                      file_ss_iter.sequence);
                     return 0;
                 }
                 else{
-                    ActionFileErrorSend(received_packet_header->file_proto.session_id, received_packet_header->file_proto.sequence);
+                    ActionFileErrorSend(file_ss_iter.session_id,
+                                        file_ss_iter.sequence);
                     return -1;
                 }
             }
@@ -544,9 +546,10 @@ int ActionFileTransportingReceived(const char* received_packet_total){
 }
 
 int ActionFileAckSend(uint32_t session_id= 0, uint32_t sequence= 0){
-    header send_packet_header{.file_proto{.file_code=kFileAck,.frame_transport_length=0,.session_id=session_id,.sequence=sequence}};
-    send_packet_header.file_proto.data_length = 0;
-    send(conn_client_fd,&send_packet_header + send_packet_header.file_proto.data_length, kHeaderSize, 0);
+    header send_packet_header{.file_proto{.file_code=kFileAck,.frame_transport_length=htonl(0),
+                                          .session_id=htonl(session_id),.sequence=htonl(sequence)}};
+    send_packet_header.file_proto.data_length = htonl(0);
+    send(conn_client_fd,&send_packet_header + ntohl(send_packet_header.file_proto.data_length), kHeaderSize, 0);
     return 0;
 }
 
@@ -559,7 +562,7 @@ int ActionFileEndReceived(const char* received_packet_total){
     auto* received_packet_header = (header*)received_packet_total;
     cout<<"一个文件接受完了"<<endl;
     for(auto file_ss_iter = file_list->begin(); file_ss_iter!=file_list->end();++file_ss_iter){
-        if(file_ss_iter->session_id == received_packet_header->file_proto.session_id){
+        if(file_ss_iter->session_id == ntohl(received_packet_header->file_proto.session_id)){
             close(file_ss_iter->file_fd);
             file_list->erase(file_ss_iter);
             return 0;
@@ -579,9 +582,9 @@ int ActionSendMessageToServer(const char* message){
         strcpy(send_message_data->msg_general.msg_data, message);
 
         cout << "[send->server] message send to server:" << send_message_data->msg_general.msg_data << endl;
-        send_message_header->msg_proto.data_length = strlen(send_message_data->msg_general.msg_data)
-                                                     + sizeof(send_message_data->msg_general.userName);
-        send(conn_client_fd, send_message_packet, kHeaderSize + send_message_header->msg_proto.data_length, 0);
+        send_message_header->msg_proto.data_length = htonl(strlen(send_message_data->msg_general.msg_data)
+                                                     + sizeof(send_message_data->msg_general.userName));
+        send(conn_client_fd, send_message_packet, kHeaderSize + ntohl(send_message_header->msg_proto.data_length), 0);
         cue_flag = true;
         return 0;
     }
@@ -600,8 +603,8 @@ int ActionReceiveMessageFromServer(const char* receive_packet_total){
     // 广播到所有客户端（gui）
     for (auto & client_point : *gui_client_list) {
         cout<<"[sur-rcv] send message to client("<<client_point.nickname<<").socket_fd = "<<client_point.fd<<endl;
-        packet_header->base_proto.data_length = strlen(packet_data->msg_general.msg_data)+sizeof(UserNameString);
-        send(client_point.fd, receive_packet_total, kHeaderSize + packet_header->base_proto.data_length, 0);
+        packet_header->base_proto.data_length = htonl(strlen(packet_data->msg_general.msg_data)+sizeof(UserNameString));
+        send(client_point.fd, receive_packet_total, kHeaderSize + ntohl(packet_header->base_proto.data_length), 0);
     }
     return 0;
 }

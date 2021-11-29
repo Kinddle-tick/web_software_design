@@ -63,12 +63,14 @@ enum State : char {
     kFileError,
     kFileEnd,
 };
+
 enum Protocol : char{
     kProtoControl,
     kProtoMessage,
     kProtoChap,
     kProtoFile,
 };
+
 //static 拒绝将此变量发送到连接器 避免出现重复定义
 //在头文件中定义常量字符串的时候万万不可忘记 否则duplicate symbol ' ' in:就会找上你家（不是
 static const char* kStateDescription[]={

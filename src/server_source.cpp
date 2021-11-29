@@ -28,8 +28,8 @@ int EventReceiveStdin(){
         packet_header->proto = kProtoMessage;
         strcpy(packet_data->msg_general.userName,"");
         strcpy(packet_data->msg_general.msg_data,input_message);
-        packet_header->msg_proto.data_length= sizeof(UserNameString) + strlen(input_message) + 1;
-        send(client_iterator.socket_fd, input_message, kHeaderSize + packet_header->msg_proto.data_length, 0);
+        packet_header->msg_proto.data_length= htonl(sizeof(UserNameString) + strlen(input_message) + 1);
+        send(client_iterator.socket_fd, input_message, kHeaderSize + ntohl(packet_header->msg_proto.data_length), 0);
     }
     return 0;
 }
@@ -55,7 +55,7 @@ int EventClientMessage(client_session* client){
     char receive_message[kHeaderSize + kBufferSize]={0};
     auto* packet_header = (header *)(receive_message);
     ssize_t byte_num = read(client->socket_fd, receive_message, kHeaderSize);
-    byte_num += read(client->socket_fd, receive_message + kHeaderSize, packet_header->base_proto.data_length);
+    byte_num += read(client->socket_fd, receive_message + kHeaderSize, ntohl(packet_header->base_proto.data_length));
     if(byte_num >0){
         auto* receive_packet_header = (header*) receive_message;
         switch (receive_packet_header->proto) {
@@ -118,7 +118,7 @@ int ActionMessageProcessing(const char* receive_packet_total, client_session* cl
 //    strcpy(from_user,packet_data->msg_general.userName);
 
     printf("message form client(%s):%s\n", client->nickname, packet_data->msg_general.msg_data );
-    packet_header->msg_proto.data_length = sizeof(UserNameString) + strlen(packet_data->msg_general.msg_data);
+    packet_header->msg_proto.data_length = htonl(sizeof(UserNameString) + strlen(packet_data->msg_general.msg_data));
     bool flood_flag = (strcmp(packet_data->msg_general.userName,"") == 0);
     strcpy(packet_data->msg_general.userName,client->nickname);
 
@@ -129,12 +129,12 @@ int ActionMessageProcessing(const char* receive_packet_total, client_session* cl
                 printf("send message to client(%s).socket_fd=%d with %s\n",
                        client_point->nickname, client_point->socket_fd, packet_data->msg_general.msg_data);
                 send(client_point->socket_fd, receive_packet_total,
-                     kHeaderSize + packet_header->msg_proto.data_length, 0);
+                     kHeaderSize + ntohl(packet_header->msg_proto.data_length), 0);
             }else if(client_list->size() == 1){
                 printf("echo message to client(%s).socket_fd=%d with %s\n",
                        client_point->nickname, client_point->socket_fd, packet_data->msg_general.msg_data);
                 send(client_point->socket_fd, receive_packet_total,
-                     kHeaderSize + packet_header->msg_proto.data_length, 0);
+                     kHeaderSize + ntohl(packet_header->msg_proto.data_length), 0);
             }
         }
         else{
@@ -142,7 +142,7 @@ int ActionMessageProcessing(const char* receive_packet_total, client_session* cl
                 printf("send message to client(%s).socket_fd=%d with %s\n",
                        client_point->nickname, client_point->socket_fd, packet_data->msg_general.msg_data);
                 send(client_point->socket_fd, receive_packet_total,
-                     kHeaderSize + packet_header->msg_proto.data_length, 0);
+                     kHeaderSize + ntohl(packet_header->msg_proto.data_length), 0);
             }
         }
 
@@ -172,8 +172,8 @@ unsigned int ActionControlUnregistered(client_session* client){
     auto * send_packet_header = (header*) send_packet;
     send_packet_header->proto = kProtoControl;
     send_packet_header->ctl_proto.ctl_code=kControlUnregistered;
-    send_packet_header->ctl_proto.data_length =0;
-    send(client->socket_fd, send_packet, kHeaderSize + send_packet_header->ctl_proto.data_length, 0);
+    send_packet_header->ctl_proto.data_length = htonl(0);
+    send(client->socket_fd, send_packet, kHeaderSize + ntohl(send_packet_header->ctl_proto.data_length), 0);
     return 0;
 }
 
@@ -195,8 +195,8 @@ int ActionControlLsResponse(client_session* client){
             strcat(response_data->ctl_ls.chr,"\n");
         }
         closedir(dir);
-        response_header->ctl_proto.data_length =  strlen(response_data->ctl_ls.chr);
-        send(client->socket_fd, response_packet, kHeaderSize + response_header->ctl_proto.data_length, 0);
+        response_header->ctl_proto.data_length =  htonl(strlen(response_data->ctl_ls.chr));
+        send(client->socket_fd, response_packet, kHeaderSize + ntohl(response_header->ctl_proto.data_length), 0);
         return 0;
     } else{
         cout<<"client ("<<client->nickname<<")的ls请求被拒绝: 非Online状态没有权限"<<endl;
@@ -230,8 +230,8 @@ unsigned int ActionChapChallenge(client_session* client){
     packet_header->chap_proto.proto = kProtoChap;
     packet_header->chap_proto.chap_code = kChapChallenging;
     packet_header->chap_proto.one_data_size=one_data_size;
-    packet_header->chap_proto.number_count=number_count;
-    packet_header->chap_proto.sequence = sequence;
+    packet_header->chap_proto.number_count=htonl(number_count);
+    packet_header->chap_proto.sequence = htonl(sequence);
     union num{
         int32_t int32;
         uint32_t uint32;
@@ -267,8 +267,8 @@ unsigned int ActionChapChallenge(client_session* client){
         answer += one_data_size==1 ? ntohs(tmpnum.uint16):0;
         answer += one_data_size==2 ? ntohl(tmpnum.uint32):0;
     }
-    packet_header->chap_proto.data_length = number_count * (1 << one_data_size);
-    send(client->socket_fd, packet_total, kHeaderSize + packet_header->chap_proto.data_length, 0);
+    packet_header->chap_proto.data_length = htonl(number_count * (1 << one_data_size));
+    send(client->socket_fd, packet_total, kHeaderSize + ntohl(packet_header->chap_proto.data_length), 0);
     chap_list->insert(chap_iterator, chap_session{.sequence=sequence,.answer=answer,.client = client,.tick=clock()});
     return answer;
 }
@@ -276,28 +276,31 @@ unsigned int ActionChapChallenge(client_session* client){
 unsigned int ActionChapJustice(const char* receive_packet_total, client_session* client){
     auto* receive_packet_header = (header *)(receive_packet_total);
     auto* receive_packet_data = (data *)(receive_packet_total + kHeaderSize);
-    char* send_packet_total[kHeaderSize];
+    char send_packet_total[kHeaderSize];
     auto* send_packet_header = (header*)send_packet_total;
-    memcpy(send_packet_header, receive_packet_total, kHeaderSize);
-    send_packet_header->chap_proto.sequence+=1;
+    memcpy(send_packet_total, receive_packet_total, kHeaderSize);
+
+    uint32_t sequence = ntohl(receive_packet_header->chap_proto.sequence);
+    send_packet_header->chap_proto.sequence=htonl(sequence+1);
+
     for (auto chap_iter=chap_list->begin();chap_iter!= chap_list->end();++chap_iter) {
-        if(chap_iter->sequence == receive_packet_header->chap_proto.sequence - 1){
+        if(chap_iter->sequence == ntohl(receive_packet_header->chap_proto.sequence) - 1){
             for(auto & user_iter : *user_list){
                 if(!strcmp(user_iter.user_name,receive_packet_data->chap_response.userName)&&
                    !strcmp(user_iter.user_name,chap_iter->client->nickname)){
                     if (ntohl(receive_packet_data->chap_response.answer)==(chap_iter->answer^user_iter.password)){
                         send_packet_header->chap_proto.chap_code=kChapSuccess;
                         strcpy(client->nickname,receive_packet_data->chap_response.userName);
-                        send_packet_header->chap_proto.data_length = 0;
+                        send_packet_header->chap_proto.data_length = htonl(0);
                         send(client->socket_fd, send_packet_total,
-                             kHeaderSize + send_packet_header->chap_proto.data_length, 0);
+                             kHeaderSize + ntohl(send_packet_header->chap_proto.data_length), 0);
                         printf("\tCHAP_SUCCESS,\"%s\" login in socket_fd(%d)\n",client->nickname,client->socket_fd);
                         client->state=kOnline;
                     } else{
                         send_packet_header->chap_proto.chap_code=kChapFailure;
-                        send_packet_header->chap_proto.data_length = 0;
+                        send_packet_header->chap_proto.data_length = htonl(0);
                         send(client->socket_fd, send_packet_total,
-                             kHeaderSize + send_packet_header->chap_proto.data_length, 0);
+                             kHeaderSize + ntohl(send_packet_header->chap_proto.data_length), 0);
                         printf("\tCHAP_FAILURE in socket_fd(%d)\n",client->socket_fd);
                         client->state=kOffline;
                     }
@@ -343,16 +346,18 @@ int ActionFileResponse(const char* receive_packet_total, client_session* client)
         tmp_session.file_fd = fd_tmp;
         tmp_session.file_ptr = fdopen(fd_tmp,"rb");
         srand(clock());
-        send_packet_header->file_proto.sequence = tmp_session.sequence = random();
-        send_packet_header->file_proto.session_id = tmp_session.session_id = session_id++;
+        tmp_session.sequence = random();
+        tmp_session.session_id = session_id++;
+        send_packet_header->file_proto.sequence = htonl(tmp_session.sequence);
+        send_packet_header->file_proto.session_id =  htonl(tmp_session.session_id);
         file_list->push_back(tmp_session);
         strcpy(send_packet_data->file_response.file_path,receive_packet_data->file_request.file_path);
         send_packet_data->file_response.init_clock = tmp_session.tick;
         send_packet_header->proto = kProtoFile;
         send_packet_header->file_proto.file_code=kFileResponse;
-        send_packet_header->file_proto.data_length =  strlen(send_packet_data->file_response.file_path)
-                                                      +sizeof(send_packet_data->file_response.init_clock) ;
-        send(client->socket_fd, send_packet_total, kHeaderSize + send_packet_header->file_proto.data_length, 0);
+        send_packet_header->file_proto.data_length =  htonl(strlen(send_packet_data->file_response.file_path)
+                                                      +sizeof(send_packet_data->file_response.init_clock)) ;
+        send(client->socket_fd, send_packet_total, kHeaderSize + ntohl(send_packet_header->file_proto.data_length), 0);
 
         cout<<"试图发送文件:"<<request_path<<endl;
         return 0;
@@ -367,29 +372,29 @@ int ActionFileTranslating(FileSession* file_ss , client_session* client){
     char send_packet_total[kHeaderSize + kBufferSize]={0};
     auto* send_packet_header = (header*)send_packet_total;
     auto* send_packet_data = (data*)(send_packet_total + kHeaderSize);
-    send_packet_header->file_proto.frame_transport_length= read(file_ss->file_fd,
+    send_packet_header->file_proto.frame_transport_length= htonl(read(file_ss->file_fd,
                                                                 send_packet_data->file_transport.file_data,
-                                                                sizeof(send_packet_data->file_transport.file_data));
+                                                                sizeof(send_packet_data->file_transport.file_data)));
     send_packet_header->proto=kProtoFile;
     send_packet_header->file_proto.file_code=kFileTransporting;
-    send_packet_header->file_proto.session_id = file_ss->session_id;
-    send_packet_header->file_proto.sequence = file_ss->sequence;
+    send_packet_header->file_proto.session_id = htonl(file_ss->session_id);
+    send_packet_header->file_proto.sequence = htonl(file_ss->sequence);
     send_packet_data->file_transport.CRC_32 = 0; //先不写
 
-    file_ss->sequence +=  send_packet_header->file_proto.frame_transport_length;
+    file_ss->sequence +=  ntohl(send_packet_header->file_proto.frame_transport_length);
     file_ss->state = kFileTransporting;
-    if(send_packet_header->file_proto.frame_transport_length == 0){
+    if(ntohl(send_packet_header->file_proto.frame_transport_length) == 0){
         cout<<"文件传输完毕"<<endl;
         ActionFileEndSend(send_packet_total,client);
         return 0;
-    }else if(send_packet_header->file_proto.frame_transport_length < 0){
+    }else if(ntohl(send_packet_header->file_proto.frame_transport_length) < 0){
         cout<<"文件读取失败"<<endl;
         return -1;
     }else{
-        send_packet_header->file_proto.data_length = sizeof(send_packet_data->file_transport.CRC_32)
-                                                     +send_packet_header->file_proto.frame_transport_length;
+        send_packet_header->file_proto.data_length = htonl(sizeof(send_packet_data->file_transport.CRC_32)
+                                                     +ntohl(send_packet_header->file_proto.frame_transport_length));
         send(client->socket_fd, send_packet_total,
-             kHeaderSize + send_packet_header->file_proto.data_length , 0);
+             kHeaderSize + ntohl(send_packet_header->file_proto.data_length) , 0);
 //        fprintf(logger_fptr,"fd:%ld完成了一轮发送",clock()-file_ss->tick);
         return 0;
     }
@@ -397,8 +402,8 @@ int ActionFileTranslating(FileSession* file_ss , client_session* client){
 int ActionFileAckReceived(const char* received_packet_total, client_session* client){
     auto* received_packet_header = (header*)received_packet_total;
     for(auto &file_ss_iter:*file_list){
-        if(file_ss_iter.session_id == received_packet_header->file_proto.session_id){
-            if(file_ss_iter.sequence == received_packet_header->file_proto.sequence){
+        if(file_ss_iter.session_id == ntohl(received_packet_header->file_proto.session_id)){
+            if(file_ss_iter.sequence == ntohl(received_packet_header->file_proto.sequence)){
                 if(file_ss_iter.state == kFileInit){
                     cout<<"client "<<client->nickname<<"准备好接受文件传输！"<<endl;
                     ActionFileTranslating(&file_ss_iter,client);
@@ -418,10 +423,10 @@ int ActionFileAckReceived(const char* received_packet_total, client_session* cli
 int ActionFileEndSend(const char* raw_packet,client_session* client){
     auto * send_packet_header = (header*)raw_packet;
     send_packet_header->file_proto.file_code = kFileEnd;
-    send_packet_header->file_proto.data_length = 0;
-    send(client->socket_fd, raw_packet, kHeaderSize + send_packet_header->file_proto.data_length, 0);
+    send_packet_header->file_proto.data_length = htonl(0);
+    send(client->socket_fd, raw_packet, kHeaderSize + ntohl(send_packet_header->file_proto.data_length), 0);
     for(auto file_ss_iter = file_list->begin(); file_ss_iter!=file_list->end();++file_ss_iter){
-        if(file_ss_iter->session_id == send_packet_header->file_proto.session_id){
+        if(file_ss_iter->session_id == ntohl(send_packet_header->file_proto.session_id)){
             close(file_ss_iter->file_fd);
             file_ss_iter->state = kFileEnd;
             file_list->erase(file_ss_iter);
