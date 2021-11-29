@@ -10,43 +10,44 @@ bool cue_flag = true;
 //int logger_fd= 0;
 //FILE *logger_fptr = nullptr;
 fd_set * client_fd_set;
-list<fd_info>* gui_client_list;
-list<file_session>* file_list;
-struct client_self_data * self_data;
+list<FdInfo>* gui_client_list;
+list<FileSession>* file_list;
+struct ClientSelfData * self_data;
 int max_fd=1;
 
 const char* client_data_dir = "client_data/";
 
 int main(int argc, const char * argv[]){
 
-    struct sockaddr_in my_addr{AF_INET};
-    struct sockaddr_in server_addr{};
+    struct sockaddr_in my_address{AF_INET};
+    struct sockaddr_in server_address{};
     mkdir(client_data_dir,S_IRWXU);
+    srand((unsigned int)time(nullptr)*100);
     if (argc!=3) {
-        my_addr.sin_family = AF_INET;
-        my_addr.sin_addr.s_addr=inet_addr("127.0.0.1");
+        my_address.sin_family = AF_INET;
+        my_address.sin_addr.s_addr=inet_addr("127.0.0.1");
         srand(clock());
-        my_addr.sin_port = htons(rand()%30000+20000);
-        bzero(&(my_addr.sin_zero), 8);
+        my_address.sin_port = htons(random() % 30000 + 20000);
+        bzero(&(my_address.sin_zero), 8);
 //        cout<<"using default\n";
     }
     else{
         // C++程序本体维护的socket地址 从argv中获取
-        my_addr.sin_family = AF_INET;
-        my_addr.sin_port = htons(strtol(argv[2], nullptr, 10));
-        my_addr.sin_addr.s_addr=inet_addr(argv[1]);
-        bzero(&(my_addr.sin_zero), 8);
+        my_address.sin_family = AF_INET;
+        my_address.sin_port = htons(strtol(argv[2], nullptr, 10));
+        my_address.sin_addr.s_addr=inet_addr(argv[1]);
+        bzero(&(my_address.sin_zero), 8);
 //        cout<<"using para from python\n";
     }
 
-    //region gui_server 用来准备建立与gui的链接 需要提供一个自身的地址(my_addr)
+    //region gui_server 用来准备建立与gui的链接 需要提供一个自身的地址(my_address)
     //creat gui_server_fd socket 准备作为gui程序server的本体套接字
     if((gui_server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0 ){
         perror("creat gui_server_fd failure");
         return -1;
     }
     //gui_server_fd bind socket  绑定
-    if(::bind(gui_server_fd, (const struct sockaddr *)&my_addr, sizeof(my_addr)) < 0){
+    if(::bind(gui_server_fd, (const struct sockaddr *)&my_address, sizeof(my_address)) < 0){
         perror("bind gui failure");
         return -1;
     }
@@ -62,9 +63,9 @@ int main(int argc, const char * argv[]){
 
     // 准备select相关内容
     client_fd_set = new fd_set;
-    gui_client_list = new list<fd_info>;
-    file_list = new list<file_session>;
-    self_data = new client_self_data{.password = 12345,.state = Offline};
+    gui_client_list = new list<FdInfo>;
+    file_list = new list<FileSession>;
+    self_data = new ClientSelfData{.password = 12345,.state = kOffline};
     strcpy(self_data->confirmUserName,"default");
     strcat(self_data->client_data_dir_now,self_data->confirmUserName);
     bool select_flag = true,stdin_flag= true;
@@ -90,7 +91,7 @@ int main(int argc, const char * argv[]){
         //select多路复用
         if(cue_flag){
             cue_flag = false;
-            cout<<"("<<State_description[self_data->state]<<") shell \033[35m"<<self_data->confirmUserName<<"\033[0m % ";
+            cout << "(" << kStateDescription[self_data->state] << ") shell \033[35m" << self_data->confirmUserName << "\033[0m % ";
             cout.flush();
         }
         int ret = select(max_fd + 1, client_fd_set, nullptr, nullptr, &ctl_time);
@@ -98,7 +99,7 @@ int main(int argc, const char * argv[]){
         if(ret > 0){
             if(FD_ISSET(0,client_fd_set))
             {
-                switch (EventStdinMsg()) {
+                switch (EventStdinMessage()) {
                     case kNormal:
                         cue_flag = true;
                         break;
@@ -123,8 +124,8 @@ int main(int argc, const char * argv[]){
                 if(FD_ISSET(conn_client_fd, client_fd_set))
                 {
                     /** region ## 检查<conn_client_fd>是否存在于ser_fdset集合中,如果存在 意味着服务器发送了内容 ## */
-//                    EventServerMsg();
-                    switch (EventServerMsg()) {
+//                    EventServerMessage();
+                    switch (EventServerMessage()) {
                         case kServerShutdown:
                             select_flag = false;
                             break;
@@ -150,7 +151,7 @@ int main(int argc, const char * argv[]){
             /** region ## 逐个检查client列表中的套接字接口是否有信息 如果有则说明GUI发送了内容到这里等待转发 ## */
             for(auto client_iterator = gui_client_list->begin(); client_iterator != gui_client_list->end(); ++client_iterator){
                 if(FD_ISSET(client_iterator->fd,client_fd_set)){
-                    if (EventGUIMsg(&*client_iterator)==0){
+                    if (EventGuiMessage(&*client_iterator) == 0){
                         /** region ## 发现客户端连接退出后的一系列处理手段 ## */
                         gui_client_list->erase(client_iterator++);
                         client_iterator--;

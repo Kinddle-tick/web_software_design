@@ -49,23 +49,23 @@ int max_fd=1;
 const char server_data_dir[DIR_LENGTH] = "server_data/";
 
 //declare
-int EventRcvStdin();
+int EventReceiveStdin();
 int EventNewClient();
-int EventClientMsg(client_session*);
+int EventClientMessage(client_session *client);
 
 unsigned int ActionControlUnregistered(client_session *);
-unsigned int ActionCHAPChallenge(client_session*);
-unsigned int ActionCHAPJustice(const char*, client_session*);
+unsigned int ActionChapChallenge(client_session *client);
+unsigned int ActionChapJustice(const char *receive_packet_total, client_session *client);
 int ActionControlLogin(const char*, client_session*);
 int ActionControlLsResponse(client_session*);
 int ActionFileResponse(const char*, client_session*);
 int ActionFileTranslating(file_session*, client_session*);
 int ActionFileAckReceived(const char*, client_session*);
 int ActionFileEndSend(const char*, client_session*);
-int ActionMsgProcessing(const char*, client_session*);
+int ActionMessageProcessing(const char *receive_packet_total, client_session *client);
 
 
-int EventRcvStdin(){
+int EventReceiveStdin(){
     char input_message[BUFFER_SIZE-sizeof(USER_NAME)]={0};
     bzero(input_message, BUFFER_SIZE-sizeof(USER_NAME)); // 将前n个字符串清零
     fgets(input_message, BUFFER_SIZE-sizeof(USER_NAME), stdin);
@@ -110,7 +110,7 @@ int EventNewClient(){
     return client_sock_fd;
 }
 
-int EventClientMsg(client_session* client){
+int EventClientMessage(client_session* client){
 
     char receive_message[HEADER_SIZE + BUFFER_SIZE]={0};
     auto* packet_header = (header *)(receive_message);
@@ -171,7 +171,7 @@ int EventClientMsg(client_session* client){
     return 0;
 }
 
-int ActionMsgProcessing(const char* receive_packet_total, client_session* client){
+int ActionMessageProcessing(const char* receive_packet_total, client_session* client){
     auto* packet_header = (header*)receive_packet_total;
     auto* packet_data = (data*)(receive_packet_total+HEADER_SIZE);
 //    USER_NAME from_user = {0};
@@ -264,7 +264,7 @@ int ActionControlLsResponse(client_session* client){
     }
 }
 
-unsigned int ActionCHAPChallenge(client_session* client){
+unsigned int ActionChapChallenge(client_session* client){
     char packet_total[HEADER_SIZE + BUFFER_SIZE]={};
     clock_t seed = clock();
     srand(seed);//这里用time是最经典的 但是因为服务端总是要等很久 每次连接的时间其实差别很大 所以用clock()我觉得不会有问题
@@ -333,7 +333,7 @@ unsigned int ActionCHAPChallenge(client_session* client){
     return answer;
 }
 
-unsigned int ActionCHAPJustice(const char* receive_packet_total, client_session* client){
+unsigned int ActionChapJustice(const char* receive_packet_total, client_session* client){
     auto* receive_packet_header = (header *)(receive_packet_total);
     auto* receive_packet_data = (data *)(receive_packet_total+HEADER_SIZE);
     char* send_packet_total[HEADER_SIZE];

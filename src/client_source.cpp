@@ -6,7 +6,7 @@
 using namespace std;
 
 //region help文档
-help_doc client_help[]={
+HelpDoc client_help[]={
         {"login",
                 "login            连接到服务器并使用账号密码登录",
                 "login <username> <password>\n*登录成功与否会给予反馈"},
@@ -53,83 +53,81 @@ help_doc client_help[]={
 };
 //endregion
 
-ssize_t EventServerMsg() {
-#if DEBUG_LEVEL >0
+ssize_t EventServerMessage() {
+#if CLIENT_DEBUG_LEVEL >0
     cout<<"[DEBUG]: EventStdinMsg"<<endl;
 #endif
-    char receive_message[HEADER_SIZE + BUFFER_SIZE]={0};
+    char receive_message[kHeaderSize + kBufferSize]={0};
     auto* packet_header = (header *)(receive_message);
-    ssize_t byte_num = read(conn_client_fd, receive_message, HEADER_SIZE);
-    byte_num += read(conn_client_fd,receive_message+HEADER_SIZE,packet_header->base_proto.data_length);
+    ssize_t byte_num = read(conn_client_fd, receive_message, kHeaderSize);
+    byte_num += read(conn_client_fd, receive_message + kHeaderSize, packet_header->base_proto.data_length);
 
     if (byte_num > 0) {
         //region *对服务端收包的处理
         switch (packet_header->proto) {
-            case ProtoCTL:
+            case kProtoControl:
                 switch (packet_header->ctl_proto.ctl_code) {
-                    case CTLUnregistered:
+                    case kControlUnregistered:
                         cout<<("用户名尚未注册...")<<endl;
-                        self_data->state = Offline;
+                        self_data->state = kOffline;
                         cue_flag = true;
-                        return ProtoCTL|CTLUnregistered<<2;
-                    case CTLLs:
+                        return kProtoControl | kControlUnregistered << 2;
+                    case kControlLs:
                         BaseActionInterrupt();
-                        cout<<"\n"<<(((data *)(receive_message+HEADER_SIZE))->ctl_ls.chr);
+                        cout<<"\n"<<(((data *)(receive_message + kHeaderSize))->ctl_ls.chr);
                         cue_flag = true;
-                        return ProtoCTL|CTLLs<<2;
+                        return kProtoControl | kControlLs << 2;
                     default:
                         cout<<"Invalid CTL packet"<<endl;
                         return -1;
                 }
-                break;
-            case ProtoMsg:
+            case kProtoMessage:
                 BaseActionInterrupt();
-                ActionMessageFromServer(receive_message);
+                ActionReceiveMessageFromServer(receive_message);
                 cue_flag = true;
-                return ProtoMsg;
-            case ProtoCHAP:
+                return kProtoMessage;
+            case kProtoChap:
                 switch (packet_header->chap_proto.chap_code) {
-                    case CHAPChallenging:
-                        ActionCHAPResponse(receive_message);
+                    case kChapChallenging:
+                        ActionChapResponse(receive_message);
                         cout<<("[sur-rcv] receive CHAP Challenge\n");
-                        return ProtoCHAP|CHAPChallenging<<2;
-                    case CHAPSuccess:
+                        return kProtoChap | kChapChallenging << 2;
+                    case kChapSuccess:
                         cout<<("[sur-rcv] CHAP success\n");
-                        self_data->state = Online;
+                        self_data->state = kOnline;
                         strcpy(self_data->confirmUserName,self_data->tmpUserName);
                         strcpy(self_data->client_data_dir_now,self_data->client_data_root);
                         strcat(self_data->client_data_dir_now,self_data->confirmUserName);
                         cue_flag = true;
-                        return ProtoCHAP|CHAPSuccess<<2;
-                    case CHAPFailure:
+                        return kProtoChap | kChapSuccess << 2;
+                    case kChapFailure:
                         cout<<("[sur-rcv] CHAP failure\n");
-                        self_data->state = Offline;
+                        self_data->state = kOffline;
                         cue_flag = true;
-                        return ProtoCHAP|CHAPFailure<<2;
+                        return kProtoChap | kChapFailure << 2;
                     default:
                         cout<<("[sur-rcv] Invalid CHAP_CODE\n");
                         cue_flag = true;
                         return -1;
                 }
-                break;
-            case ProtoFile:
+            case kProtoFile:
                 switch (packet_header->file_proto.file_code) {
-                    case FileTransporting:
+                    case kFileTransporting:
                         ActionFileTransportingReceived(receive_message);
-                        return ProtoFile|FileTransporting<<2;
-                    case FileResponse:
+                        return kProtoFile | kFileTransporting << 2;
+                    case kFileResponse:
                         BaseActionInterrupt();
                         cout<<endl;
                         ActionFileResponseReceived(receive_message);
-                        return ProtoFile|FileTransporting<<2;
-                    case FileEnd:
+                        return kProtoFile | kFileTransporting << 2;
+                    case kFileEnd:
                         ActionFileEndReceived(receive_message);
                         cue_flag = true;
-                        return ProtoFile|FileEnd<<2;
+                        return kProtoFile | kFileEnd << 2;
                 }
                 cout<<("[sur-rcv] FILE Request..?\n");
                 cue_flag = true;
-                return ProtoFile;
+                return kProtoFile;
             default:
                 printf("[sur-rcv] Invalid proto,with number: %d,",packet_header->proto);
                 cout<<"drop the packet...";
@@ -147,21 +145,20 @@ ssize_t EventServerMsg() {
         FD_CLR(conn_client_fd, client_fd_set);
         cout<<"server("<<conn_client_fd<<") exit!"<<endl;
         // 广播到所有客户端
-        strcpy(receive_message+HEADER_SIZE,"Server Exit!");
+        strcpy(receive_message + kHeaderSize, "Server Exit!");
         for(auto & client_point : *gui_client_list){
             BaseActionInterrupt();
             cout<<("\n**server exit")<<endl;
             cue_flag = true;
-            packet_header->base_proto.data_length = strlen(receive_message+HEADER_SIZE);
-            send(client_point.fd, receive_message+HEADER_SIZE, packet_header->base_proto.data_length, 0);
+            packet_header->base_proto.data_length = strlen(receive_message + kHeaderSize);
+            send(client_point.fd, receive_message + kHeaderSize, packet_header->base_proto.data_length, 0);
         }
         return kServerShutdown;
     }
-    return -1;
 }
 
 int EventNewGui(){
-#if DEBUG_LEVEL >0
+#if CLIENT_DEBUG_LEVEL >0
     cout<<"[DEBUG]: EventNewGui"<<endl;
 #endif
     struct sockaddr_in client_address{};
@@ -171,7 +168,7 @@ int EventNewGui(){
     {
         char nickname_tmp[21]{0};
         snprintf(nickname_tmp,20,"GUI[unknown]");
-        auto * tmp_client = new fd_info{client_sock_fd};
+        auto * tmp_client = new FdInfo{client_sock_fd};
         strcpy(tmp_client->nickname,nickname_tmp);
         gui_client_list->push_back(*tmp_client);
         cout<<"GUI("<<tmp_client->nickname<<") joined!"<<endl;
@@ -179,16 +176,16 @@ int EventNewGui(){
     return 0;
 }
 
-ssize_t EventGUIMsg(fd_info* client){
-#if DEBUG_LEVEL >0
+ssize_t EventGuiMessage(FdInfo* client){
+#if CLIENT_DEBUG_LEVEL >0
     cout<<"[DEBUG]: EventGUIMsg"<<endl;
 #endif
-    char recv_msg[HEADER_SIZE+BUFFER_SIZE];
-    bzero(recv_msg,HEADER_SIZE+BUFFER_SIZE);
-    ssize_t byte_num=read(client->fd,recv_msg+HEADER_SIZE,BUFFER_SIZE);
+    char recv_msg[kHeaderSize + kBufferSize];
+    bzero(recv_msg, kHeaderSize + kBufferSize);
+    ssize_t byte_num=read(client->fd, recv_msg + kHeaderSize, kBufferSize);
     if(byte_num >0){
-        cout<<"message form socket("<<client->nickname<<"):"<<recv_msg+HEADER_SIZE<<endl;
-        send(conn_client_fd, recv_msg, strlen(recv_msg + HEADER_SIZE) + HEADER_SIZE + 1, 0);
+        cout << "message form socket(" << client->nickname << "):" << recv_msg + kHeaderSize << endl;
+        send(conn_client_fd, recv_msg, strlen(recv_msg + kHeaderSize) + kHeaderSize + 1, 0);
     }
     else if(byte_num < 0){
         cout<<("recv error!");
@@ -200,20 +197,20 @@ ssize_t EventGUIMsg(fd_info* client){
     return byte_num;
 }
 
-int EventStdinMsg(){
-#if DEBUG_LEVEL >0
+int EventStdinMessage(){
+#if CLIENT_DEBUG_LEVEL >0
     cout<<"[DEBUG]: EventStdinMsg"<<endl;
 #endif
     /** region * 检查<标准输入>是否存在于ser_fdset集合中（也就是说，检测到键盘输入时，做如下事情） ## */
-    char input_msg[HEADER_SIZE+BUFFER_SIZE]={0};
+    char input_msg[kHeaderSize + kBufferSize]={0};
     char* para[128]={nullptr};//顶天接受128个用空格分开的参数了
     unsigned int para_count=0;
     bool blank_flag= true;
     bool in_txt_flag = false;
-    cin.getline(input_msg,HEADER_SIZE+BUFFER_SIZE,'\n');
+    cin.getline(input_msg, kHeaderSize + kBufferSize, '\n');
     //特判：
     if(strcmp(input_msg,"exit")==0){
-        self_data->state = Offline;
+        self_data->state = kOffline;
         return kClientExit;
     }
     if(strlen(input_msg)==0){
@@ -257,7 +254,7 @@ int EventStdinMsg(){
         }else{
             strcpy(self_data->tmpUserName,self_data->confirmUserName);
         }
-        ActionConnectServer();
+        ActionConnectToServer();
         ActionControlLogin();
         return kConnectServer;
     }
@@ -277,7 +274,7 @@ int EventStdinMsg(){
             close(conn_client_fd);
             FD_CLR(conn_client_fd,client_fd_set);
             conn_client_fd=0;
-            self_data->state = Offline;
+            self_data->state = kOffline;
         }
         return kNormal;
     }
@@ -299,7 +296,7 @@ int EventStdinMsg(){
             cout<<"请输入文件名..."<<endl;
             return kNormal;
         }
-        ActionFileRequest(para[1]);
+        ActionFileRequestSend(para[1]);
         return kNormal;
     }
     else if (!strcmp(para[0],"upload")){
@@ -324,7 +321,7 @@ void BaseActionInterrupt(){
 }
 
 int ActionPrintConsoleHelp(const char* first_para = nullptr){
-#if DEBUG_LEVEL >0
+#if CLIENT_DEBUG_LEVEL >0
     cout<<"[DEBUG]: ActionPrintConsoleHelp"<<endl;
 #endif
     cout<<"[help]: ";
@@ -347,10 +344,10 @@ int ActionPrintConsoleHelp(const char* first_para = nullptr){
         cout<<"该指令无效"<<endl;
         return 1;
     }
-};
+}
 
-int ActionCHAPResponse(const char* packet_total){
-#if DEBUG_LEVEL >0
+int ActionChapResponse(const char* packet_total){
+#if CLIENT_DEBUG_LEVEL >0
     cout<<"[DEBUG]: ActionCHAPResponse"<<endl;
 #endif
     auto* packet_header=(header*)packet_total;
@@ -364,33 +361,33 @@ int ActionCHAPResponse(const char* packet_total){
     };
     for(int i = 0;i<packet_header->chap_proto.number_count; i++){
         num tmp_num{};
-        memcpy(&tmp_num, packet_total + HEADER_SIZE + i * (1 << one_data_size), 1 << one_data_size);
+        memcpy(&tmp_num, packet_total + kHeaderSize + i * (1 << one_data_size), 1 << one_data_size);
         answer += one_data_size==0 ? tmp_num.uint8 : 0;
         answer += one_data_size==1 ? ntohs(tmp_num.uint16) : 0;
         answer += one_data_size==2 ? ntohl(tmp_num.uint32) : 0;
     }
 
-    char send_packet_total[HEADER_SIZE+BUFFER_SIZE];
+    char send_packet_total[kHeaderSize + kBufferSize];
     auto* send_packet_header = (header*)send_packet_total;
-    auto* send_packet_data=(data*)(send_packet_total+HEADER_SIZE);
-    memcpy(send_packet_header,packet_header,HEADER_SIZE);
-    send_packet_header->chap_proto.chap_code=CHAPResponse;
+    auto* send_packet_data=(data*)(send_packet_total + kHeaderSize);
+    memcpy(send_packet_header, packet_header, kHeaderSize);
+    send_packet_header->chap_proto.chap_code=kChapResponse;
     send_packet_header->chap_proto.sequence+=1;
-    memcpy(send_packet_data->chap_response.userName, self_data->tmpUserName,USERNAME_LENGTH);
+    memcpy(send_packet_data->chap_response.userName, self_data->tmpUserName, kUsernameLength);
     send_packet_data->chap_response.answer = htonl(answer^self_data->password);
     send_packet_header->chap_proto.data_length = sizeof(send_packet_data->chap_response);
-    send(conn_client_fd,send_packet_total, HEADER_SIZE+send_packet_header->chap_proto.data_length,0);
+    send(conn_client_fd, send_packet_total, kHeaderSize + send_packet_header->chap_proto.data_length, 0);
     return 0;
-};
+}
 
-int ActionConnectServer(){
-#if DEBUG_LEVEL >0
+int ActionConnectToServer(){
+#if CLIENT_DEBUG_LEVEL >0
     cout<<"[DEBUG]: ActionConnectServer"<<endl;
 #endif
     sockaddr_in server_addr{};
     // 面向服务器的链接 在本程序中是作为客户端存在的
     server_addr.sin_family = AF_INET;
-    server_addr.sin_port = htons(SER_PORT);
+    server_addr.sin_port = htons(kServerPort);
     server_addr.sin_addr.s_addr =INADDR_ANY;
     bzero(&(server_addr.sin_zero), 8);
 
@@ -401,7 +398,7 @@ int ActionConnectServer(){
     conn_client_fd = socket(AF_INET, SOCK_STREAM, 0);
     if(conn_client_fd == -1){
         perror("conn_client_fd socket error");
-        self_data->state = Offline;
+        self_data->state = kOffline;
         return 1;
     }
     if(connect(conn_client_fd, (struct sockaddr *)&server_addr, sizeof(struct sockaddr_in)) == 0)
@@ -412,46 +409,46 @@ int ActionConnectServer(){
         {
             max_fd = conn_client_fd;
         }
-        self_data->state = LoginTry;
+        self_data->state = kLoginTry;
         return 0;
     } else {
-        self_data->state = Offline;
+        self_data->state = kOffline;
         return -1;
     }
 }
 
 int ActionControlLogin(){
-    if(self_data->state != Offline){
-        char packet_total[HEADER_SIZE+BUFFER_SIZE]={0};
+    if(self_data->state != kOffline){
+        char packet_total[kHeaderSize + kBufferSize]={0};
         auto* packet_header = (header*)packet_total;
-        auto* packet_data = (data*)(packet_total+HEADER_SIZE);
-        packet_header->proto = ProtoCTL;
-        packet_header->ctl_proto.ctl_code = CTLLogin;
-        memcpy(packet_data->ctl_login.userName, self_data->tmpUserName,USERNAME_LENGTH);
+        auto* packet_data = (data*)(packet_total + kHeaderSize);
+        packet_header->proto = kProtoControl;
+        packet_header->ctl_proto.ctl_code = kControlLogin;
+        memcpy(packet_data->ctl_login.userName, self_data->tmpUserName, kUsernameLength);
         packet_header->ctl_proto.data_length = sizeof(packet_data->ctl_login);
-        send(conn_client_fd,packet_total,HEADER_SIZE+packet_header->ctl_proto.data_length,0);
-        self_data->state = LoginTry;
+        send(conn_client_fd, packet_total, kHeaderSize + packet_header->ctl_proto.data_length, 0);
+        self_data->state = kLoginTry;
         return 0;
     } else{
-        cout<< "can not send <login> packet to server in state <Offline>" <<endl;
+        cout<< "can not send <login> packet to server in state <kOffline>" <<endl;
         return 1;
     }
 
 }
 
 int ActionControlLs(){
-    if(self_data->state == Online){
-        char packet_total[HEADER_SIZE+BUFFER_SIZE]={0};
+    if(self_data->state == kOnline){
+        char packet_total[kHeaderSize + kBufferSize]={0};
         auto* packet_header = (header*)packet_total;
-        auto* packet_data = (data*)(packet_total+HEADER_SIZE);
-        packet_header->proto=ProtoCTL;
-        packet_header->ctl_proto.ctl_code = CTLLs;
+        auto* packet_data = (data*)(packet_total + kHeaderSize);
+        packet_header->proto=kProtoControl;
+        packet_header->ctl_proto.ctl_code = kControlLs;
         packet_header->ctl_proto.data_length = 0;
-        send(conn_client_fd,packet_total,HEADER_SIZE+packet_header->ctl_proto.data_length,0);
+        send(conn_client_fd, packet_total, kHeaderSize + packet_header->ctl_proto.data_length, 0);
         return 0;
     }
     else{
-        cout<< "can only send ls to server in state <Online>" <<endl;
+        cout<< "can only send ls to server in state <kOnline>" <<endl;
         return -1;
     }
 }
@@ -460,30 +457,30 @@ int ActionControlMonitor(){
     return 0;
 }
 
-int ActionFileRequest(const char* file_path){
-    if(self_data->state == Online){
-        char packet_total[HEADER_SIZE+BUFFER_SIZE]={0};
+int ActionFileRequestSend(const char* file_path){
+    if(self_data->state == kOnline){
+        char packet_total[kHeaderSize + kBufferSize]={0};
         auto* packet_header = (header*)packet_total;
-        auto* packet_data = (data*)(packet_total+HEADER_SIZE);
-        packet_header->proto=ProtoFile;
-        packet_header->file_proto.file_code = FileRequest;
+        auto* packet_data = (data*)(packet_total + kHeaderSize);
+        packet_header->proto=kProtoFile;
+        packet_header->file_proto.file_code = kFileRequest;
 
         strcpy(packet_data->file_request.file_path,file_path);
         packet_header->file_proto.data_length = strlen(file_path)+sizeof(packet_data->file_request.init_clock);
-        send(conn_client_fd,packet_total,HEADER_SIZE+packet_header->file_proto.data_length,0);
+        send(conn_client_fd, packet_total, kHeaderSize + packet_header->file_proto.data_length, 0);
         return 0;
     }
     else{
-        cout<< "can only send download cmd to server in state <Online>" <<endl;
+        cout<< "can only send download cmd to server in state <kOnline>" <<endl;
         return -1;
     }
 }
 
 int ActionFileResponseReceived(const char * received_packet_total){
     auto* received_packet_header = (header *)received_packet_total;
-    if(self_data->state == Online){
-        auto* received_packet_data = (data *)(received_packet_total+HEADER_SIZE);
-        char request_path[USER_PATH_MAX_LENGTH]={0};
+    if(self_data->state == kOnline){
+        auto* received_packet_data = (data *)(received_packet_total + kHeaderSize);
+        char request_path[kUserPathMaxLength]={0};
         strcpy(request_path,self_data->client_data_dir_now);
         if(access(request_path,W_OK)!=0){
             cout<<request_path<<"目录不存在，将会被创建"<<endl;
@@ -499,13 +496,13 @@ int ActionFileResponseReceived(const char * received_packet_total){
             perror("文件打开失败");
             return -1;
         }
-        file_session tmp_session{.session_id=received_packet_header->file_proto.session_id,
+        FileSession tmp_session{.session_id=received_packet_header->file_proto.session_id,
                 .sequence = received_packet_header->file_proto.sequence,
                 .file_fd = tmp_fd,
                 .init_clock = received_packet_data->file_response.init_clock,
                 .init_sequence = received_packet_header->file_proto.sequence};
         file_list->push_back(tmp_session);
-        ActionFileACKSend(tmp_session.session_id,tmp_session.sequence);
+        ActionFileAckSend(tmp_session.session_id, tmp_session.sequence);
         cout<<"已准备好接受文件传输"<<endl;
         return 0;
     }
@@ -518,7 +515,7 @@ int ActionFileResponseReceived(const char * received_packet_total){
 
 int ActionFileTransportingReceived(const char* received_packet_total){
     auto* received_packet_header = (header*)received_packet_total;
-    auto* received_packet_data = (data*)(received_packet_total+HEADER_SIZE);
+    auto* received_packet_data = (data*)(received_packet_total + kHeaderSize);
     for(auto &file_ss_iter :*file_list){
         if (file_ss_iter.session_id==received_packet_header->file_proto.session_id){
             if(file_ss_iter.sequence == received_packet_header->file_proto.sequence){
@@ -530,8 +527,8 @@ int ActionFileTransportingReceived(const char* received_packet_total){
 
 //                    fprintf(logger_fptr,"fd:%ld完成了一轮确收",clock()-file_ss_iter.init_clock);
 //                    cout<<"session:"<<received_packet_header->file_proto.session_id<<" 完成了一次确收"<<endl;
-                    ActionFileACKSend(received_packet_header->file_proto.session_id,
-                                      received_packet_header->file_proto.sequence+size);
+                    ActionFileAckSend(received_packet_header->file_proto.session_id,
+                                      received_packet_header->file_proto.sequence + size);
                     return 0;
                 }
                 else{
@@ -544,12 +541,12 @@ int ActionFileTransportingReceived(const char* received_packet_total){
     }
     cout<<"没有找到session和sequence均符合条件的会话;"<<endl;
     return -1;
-};
+}
 
-int ActionFileACKSend(uint32_t session_id=0,uint32_t sequence=0){
-    header send_packet_header{.file_proto{.file_code=FileAck,.frame_transport_length=0,.session_id=session_id,.sequence=sequence}};
+int ActionFileAckSend(uint32_t session_id= 0, uint32_t sequence= 0){
+    header send_packet_header{.file_proto{.file_code=kFileAck,.frame_transport_length=0,.session_id=session_id,.sequence=sequence}};
     send_packet_header.file_proto.data_length = 0;
-    send(conn_client_fd,&send_packet_header + send_packet_header.file_proto.data_length,HEADER_SIZE,0);
+    send(conn_client_fd,&send_packet_header + send_packet_header.file_proto.data_length, kHeaderSize, 0);
     return 0;
 }
 
@@ -570,21 +567,21 @@ int ActionFileEndReceived(const char* received_packet_total){
     }
     cout<<"没有在列表里找到相应的文件"<<endl;
     return -1;
-};
+}
 
 int ActionSendMessageToServer(const char* message){
-    if(self_data->state == Online) {
-        char send_message_packet[HEADER_SIZE + BUFFER_SIZE]={0};
+    if(self_data->state == kOnline) {
+        char send_message_packet[kHeaderSize + kBufferSize]={0};
         auto * send_message_header=(header*)send_message_packet;
-        auto * send_message_data = (data *)(send_message_packet+HEADER_SIZE);
+        auto * send_message_data = (data *)(send_message_packet + kHeaderSize);
 
-        send_message_header->msg_proto.proto = ProtoMsg;
+        send_message_header->msg_proto.proto = kProtoMessage;
         strcpy(send_message_data->msg_general.msg_data, message);
 
         cout << "[send->server] message send to server:" << send_message_data->msg_general.msg_data << endl;
         send_message_header->msg_proto.data_length = strlen(send_message_data->msg_general.msg_data)
                                                      + sizeof(send_message_data->msg_general.userName);
-        send(conn_client_fd, send_message_packet, HEADER_SIZE + send_message_header->msg_proto.data_length, 0);
+        send(conn_client_fd, send_message_packet, kHeaderSize + send_message_header->msg_proto.data_length, 0);
         cue_flag = true;
         return 0;
     }
@@ -595,16 +592,16 @@ int ActionSendMessageToServer(const char* message){
     }
 }
 
-int ActionMessageFromServer(const char* receive_packet_total){
+int ActionReceiveMessageFromServer(const char* receive_packet_total){
     auto* packet_header = (header*)receive_packet_total;
-    auto* packet_data  = (data*)(receive_packet_total+HEADER_SIZE);
+    auto* packet_data  = (data*)(receive_packet_total + kHeaderSize);
     cout<<"\n[sur-rcv] message form server("<<conn_client_fd<<"):\033[34m"<<packet_data->msg_general.msg_data<<"\033[0m"<<endl;
 
     // 广播到所有客户端（gui）
     for (auto & client_point : *gui_client_list) {
         cout<<"[sur-rcv] send message to client("<<client_point.nickname<<").socket_fd = "<<client_point.fd<<endl;
-        packet_header->base_proto.data_length = strlen(packet_data->msg_general.msg_data)+sizeof(USER_NAME);
-        send(client_point.fd, receive_packet_total, HEADER_SIZE + packet_header->base_proto.data_length, 0);
+        packet_header->base_proto.data_length = strlen(packet_data->msg_general.msg_data)+sizeof(UserNameString);
+        send(client_point.fd, receive_packet_total, kHeaderSize + packet_header->base_proto.data_length, 0);
     }
     return 0;
-};
+}

@@ -10,24 +10,24 @@ unsigned int session_id = 1;
 list<user_info>* user_list;
 list<client_session>* client_list;
 list<chap_session>* chap_list;
-list<file_session>* file_list;
+list<FileSession>* file_list;
 
 fd_set ser_fd_set{0};
 int max_fd=1;
-const char server_data_dir[DIR_LENGTH] = "server_data/";
+const char server_data_dir[kDirLength] = "server_data/";
 
-int main(int agrc,char **argv){
+int main(int argc,char **argv){
     char main_general_buffer[1024]={0};
     user_list = new list<user_info>;
     chap_list = new list<chap_session>;
-    file_list = new list<file_session>;
+    file_list = new list<FileSession>;
     client_list = new list<client_session>;
 
     mkdir(server_data_dir,S_IRWXU);
 
     //region 读取文件夹下user_sheet.csv 初始化用户列表
-    char user_sheet_path[DIR_LENGTH+20];
-    char user_root_path[USER_PATH_MAX_LENGTH];
+    char user_sheet_path[kDirLength + 20];
+    char user_root_path[kUserPathMaxLength];
 
     strcpy(user_sheet_path,server_data_dir);
     strcat(user_sheet_path,"user_sheet.csv");
@@ -47,13 +47,13 @@ int main(int agrc,char **argv){
         }
         string num_str = line.substr(num_start,num_end);
         tmp_user.password=stoi(num_str);
-        if(strlen(line.c_str())>USERNAME_LENGTH){
+        if(strlen(line.c_str()) > kUsernameLength){
             printf("name:'%s' is too long,drop it",line.c_str());
         }
         strcpy(tmp_user.user_name,line.c_str());
         strcpy(user_root_path,server_data_dir);
         strcat(user_root_path,tmp_user.user_name);
-        int debug_tmp = access(user_root_path,R_OK|W_OK|F_OK);
+//        int debug_tmp = access(user_root_path,R_OK|W_OK|F_OK);
         if(access(user_root_path,R_OK|W_OK|F_OK)<0){
             if(mkdir(user_root_path,S_IRWXU) == 0){
                 cout<<"为用户"<<tmp_user.user_name<<"于"<<user_root_path<<"创建了文件夹"<<endl;
@@ -79,10 +79,10 @@ int main(int agrc,char **argv){
     //endregion
 
     //region 一些老生常谈的socket的初始化操作
-    struct sockaddr_in ser_addr{};
-    ser_addr.sin_family= AF_INET;    //IPV4
-    ser_addr.sin_port = htons(SER_PORT);
-    ser_addr.sin_addr.s_addr = INADDR_ANY;  //指定的是所有地址
+    struct sockaddr_in server_address{};
+    server_address.sin_family= AF_INET;    //IPV4
+    server_address.sin_port = htons(kServerPort);
+    server_address.sin_addr.s_addr = INADDR_ANY;  //指定的是所有地址
 
     //creat server socket 准备server的本体套接字
     if((conn_server_fd = socket(AF_INET, SOCK_STREAM, 0)) < 0 )
@@ -92,7 +92,7 @@ int main(int agrc,char **argv){
     }
 
     //bind socket  绑定
-    if(::bind(conn_server_fd, (const struct sockaddr *)&ser_addr, sizeof(ser_addr)) < 0)
+    if(::bind(conn_server_fd, (const struct sockaddr *)&server_address, sizeof(server_address)) < 0)
     {
         perror("bind failure");
         return -1;
@@ -129,7 +129,7 @@ int main(int agrc,char **argv){
         if (ret > 0) {
             if (FD_ISSET(0, &ser_fd_set)) //<标准输入>是否存在于ser_fdset集合中（也就是说，检测到输入时，做如下事情）
             {
-                switch (EventRcvStdin()) {
+                switch (EventReceiveStdin()) {
                     case 0:
                         break;
 
@@ -156,7 +156,7 @@ int main(int agrc,char **argv){
             for (auto client_iterator = client_list->begin(); client_iterator != client_list->end(); ++client_iterator) {
                 if (FD_ISSET(client_iterator->socket_fd, &ser_fd_set)) {
                     client_iterator->tick =clock();
-                    if (EventClientMsg(&*client_iterator) == -1) {
+                    if (EventClientMessage(&*client_iterator) == -1) {
                         FD_CLR(client_iterator->socket_fd, &ser_fd_set);
                         close(client_iterator->socket_fd);
                         client_list->erase(client_iterator++);
