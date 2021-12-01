@@ -49,8 +49,9 @@ int EventNewClient(){
     int client_sock_fd = accept(conn_server_fd, (struct sockaddr *)&client_address, &address_len);
     if(client_sock_fd > 0)
     {
-        client_session tmp_cs = {.socket_fd = client_sock_fd,
-                .state = kOffline,.tick=clock()};
+        ClientSession tmp_cs = {.socket_fd = client_sock_fd,
+                .state = kOffline};
+        clock_gettime(CLOCK_MONOTONIC,&tmp_cs.tick);
         strcpy(tmp_cs.nickname,"Unknown");
         client_list->push_back(tmp_cs);
         printf("client-kOffline joined in socket_fd(%d)!\n",client_sock_fd);
@@ -59,7 +60,7 @@ int EventNewClient(){
     return client_sock_fd;
 }
 
-int EventClientMessage(client_session* client){
+int EventClientMessage(ClientSession* client){
 
     char receive_message[kHeaderSize + kBufferSize]={0};
     auto* packet_header = (header *)(receive_message);
@@ -80,7 +81,7 @@ int EventClientMessage(client_session* client){
                     case kControlChangePassword:
                         break;
                     case kControlLs:
-                        ActionControlLsResponse(client);
+                        ActionControlLsResponse(receive_message,client);
                         break;
                     default:
                         cout<<"receive invalid CTL_code";
@@ -120,7 +121,7 @@ int EventClientMessage(client_session* client){
     return 0;
 }
 
-int ActionMessageProcessing(const char* receive_packet_total, client_session* client){
+int ActionMessageProcessing(const char* receive_packet_total, ClientSession* client){
     auto* packet_header = (header*)receive_packet_total;
     auto* packet_data = (data*)(receive_packet_total + kHeaderSize);
 //    UserNameString from_user = {0};
@@ -159,24 +160,24 @@ int ActionMessageProcessing(const char* receive_packet_total, client_session* cl
     return 0;
 }
 
-int ActionControlLogin(const char* packet_total, client_session* client){
+int ActionControlLogin(const char* packet_total, ClientSession* client){
     auto * packet_data  = (data *)(packet_total + kHeaderSize);
     for(auto & user_iter : *user_list){
         if(!strcmp(user_iter.user_name,packet_data->ctl_login.userName)){
             strcpy(client->nickname, packet_data->ctl_login.userName);
             strcpy(client->now_path, user_iter.root_path);
-            ActionChapChallenge(client);
+            ActionChapChallenge(packet_total,client);
             client->state = kChapChallenging;
             return 0;
         }
     }
     cout<<"没找到用户名：("<<packet_data->ctl_login.userName<<")"<<endl;
-    ActionControlUnregistered(client);
+    ActionControlUnregistered(packet_total,client);
     client->state = kOffline;
     return 1;
 }
 
-unsigned int ActionControlUnregistered(client_session* client){
+unsigned int ActionControlUnregistered(const char *receive_packet_total,ClientSession* client){
     char send_packet[kHeaderSize + kBufferSize];
     auto * send_packet_header = (header*) send_packet;
     send_packet_header->proto = kProtoControl;
@@ -186,7 +187,7 @@ unsigned int ActionControlUnregistered(client_session* client){
     return 0;
 }
 
-int ActionControlLsResponse(client_session* client){
+int ActionControlLsResponse(const char *receive_packet_total,ClientSession* client){
     if(client->state == kOnline){
         DIR *dir = opendir(client->now_path);
         if(dir == nullptr){
@@ -213,7 +214,8 @@ int ActionControlLsResponse(client_session* client){
     }
 }
 
-unsigned int ActionChapChallenge(client_session* client){
+unsigned int ActionChapChallenge(const char *receive_packet_total,ClientSession* client){
+    auto* receive_packet_header = (header*)receive_packet_total;
     char packet_total[kHeaderSize + kBufferSize]={};
     clock_t seed = clock();
     srand(seed);//这里用time是最经典的 但是因为服务端总是要等很久 每次连接的时间其实差别很大 所以用clock()我觉得不会有问题
@@ -277,12 +279,16 @@ unsigned int ActionChapChallenge(client_session* client){
         answer += one_data_size==2 ? ntohl(tmpnum.uint32):0;
     }
     packet_header->chap_proto.data_length = htonl(number_count * (1 << one_data_size));
+    packet_header->chap_proto.timer_id_send = 0;
+    packet_header->chap_proto.timer_id_rcv = receive_packet_header->chap_proto.timer_id_send;
     send(client->socket_fd, packet_total, kHeaderSize + ntohl(packet_header->chap_proto.data_length), 0);
-    chap_list->insert(chap_iterator, chap_session{.sequence=sequence,.answer=answer,.client = client,.tick=clock()});
+    ChapSession tmp_chap_session{.sequence=sequence,.answer=answer,.client = client};
+    clock_gettime(CLOCK_MONOTONIC,&tmp_chap_session.tick);
+    chap_list->insert(chap_iterator, tmp_chap_session);
     return answer;
 }
 
-unsigned int ActionChapJustice(const char* receive_packet_total, client_session* client){
+unsigned int ActionChapJustice(const char* receive_packet_total, ClientSession* client){
     auto* receive_packet_header = (header *)(receive_packet_total);
     auto* receive_packet_data = (data *)(receive_packet_total + kHeaderSize);
     char send_packet_total[kHeaderSize];
@@ -328,7 +334,7 @@ unsigned int ActionChapJustice(const char* receive_packet_total, client_session*
     return 1;
 }
 
-int ActionFileResponse(const char* receive_packet_total, client_session* client){
+int ActionFileResponse(const char* receive_packet_total, ClientSession* client){
     auto* receive_packet_header = (header *)(receive_packet_total);
     auto* receive_packet_data = (data *)(receive_packet_total + kHeaderSize);
     cout<<"请求文件名:"<<receive_packet_data->file_request.file_path<<endl;
@@ -351,7 +357,8 @@ int ActionFileResponse(const char* receive_packet_total, client_session* client)
         auto* send_packet_header = (header*)send_packet_total;
         auto* send_packet_data = (data*)(send_packet_total + kHeaderSize);
         tmp_session.state = kFileInit;
-        tmp_session.tick = clock();
+//        tmp_session.tick = clock();
+        clock_gettime(CLOCK_MONOTONIC,&tmp_session.tick);
         tmp_session.file_fd = fd_tmp;
         tmp_session.file_ptr = fdopen(fd_tmp,"rb");
         srand(clock());
@@ -361,11 +368,11 @@ int ActionFileResponse(const char* receive_packet_total, client_session* client)
         send_packet_header->file_proto.session_id =  htonl(tmp_session.session_id);
         file_list->push_back(tmp_session);
         strcpy(send_packet_data->file_response.file_path,receive_packet_data->file_request.file_path);
-        send_packet_data->file_response.init_clock = htonl(tmp_session.tick);
+        send_packet_data->file_response.init_time = htonl(tmp_session.tick.tv_sec);
         send_packet_header->proto = kProtoFile;
         send_packet_header->file_proto.file_code=kFileResponse;
         send_packet_header->file_proto.data_length =  htonl(strlen(send_packet_data->file_response.file_path)
-                                                      +sizeof(send_packet_data->file_response.init_clock)) ;
+                                                      +sizeof(send_packet_data->file_response.init_time)) ;
         send(client->socket_fd, send_packet_total, kHeaderSize + ntohl(send_packet_header->file_proto.data_length), 0);
 
         cout<<"试图发送文件:"<<request_path<<endl;
@@ -377,7 +384,7 @@ int ActionFileResponse(const char* receive_packet_total, client_session* client)
     }
 }
 
-int ActionFileTranslating(FileSession* file_ss , client_session* client){
+int ActionFileTranslating(FileSession* file_ss , ClientSession* client){
     char send_packet_total[kHeaderSize + kBufferSize]={0};
     auto* send_packet_header = (header*)send_packet_total;
     auto* send_packet_data = (data*)(send_packet_total + kHeaderSize);
@@ -409,7 +416,7 @@ int ActionFileTranslating(FileSession* file_ss , client_session* client){
     }
 }
 
-int ActionFileAckReceived(const char* received_packet_total, client_session* client){
+int ActionFileAckReceived(const char* received_packet_total, ClientSession* client){
     auto* received_packet_header = (header*)received_packet_total;
     for(auto &file_ss_iter:*file_list){
         if(file_ss_iter.session_id == ntohl(received_packet_header->file_proto.session_id)){
@@ -430,7 +437,7 @@ int ActionFileAckReceived(const char* received_packet_total, client_session* cli
     return -1;
 }
 
-int ActionFileEndSend(const char* raw_packet,client_session* client){
+int ActionFileEndSend(const char* raw_packet, ClientSession* client){
     auto * send_packet_header = (header*)raw_packet;
     send_packet_header->file_proto.file_code = kFileEnd;
     send_packet_header->file_proto.data_length = htonl(0);
@@ -449,9 +456,10 @@ int ActionFileEndSend(const char* raw_packet,client_session* client){
     return -1;
 }
 
-
 //region TimerSession实现代码
-TimerSession::TimerSession(int timing_second):timing_second_(timing_second),retry_count_(0),init_tick_(clock()),timer_state_(kTimerInit){}
+TimerSession::TimerSession(int timing_second,uint8_t the_timer_id):timer_id_(the_timer_id),timing_second_(timing_second),retry_count_(0),timer_state_(kTimerInit){
+    clock_gettime(CLOCK_MONOTONIC,&init_tick_);
+}
 void TimerSession::set_timing_second(int timing_second) {
     timing_second_=timing_second;
 }
@@ -459,43 +467,81 @@ int TimerSession::get_timing_second() const{
     return timing_second_;
 }
 bool TimerSession::TimeoutJustice() const {
-    return (clock() - init_tick_)/CLOCKS_PER_SEC >timing_second_;
+    timespec tmp_time{};
+    clock_gettime(CLOCK_MONOTONIC,&tmp_time);
+    time_t tmp = tmp_time.tv_sec - init_tick_.tv_sec;
+    printf("%ld ",tmp);
+    fflush(stdout);
+    return (tmp) >timing_second_;
 }
 bool TimerSession::TimerUpdate() {
     retry_count_+=1;
     if(retry_count_<5){
         timing_second_*=2;
-        init_tick_ = clock();
+        clock_gettime(CLOCK_MONOTONIC,&init_tick_);
         return true;
     } else{
         return false;
     }
 }
 bool TimerSession::TimerTrigger(){
-    printf("debug:使用了父类的虚函数");
+    printf("debug:error:使用了父类的虚函数");
+    return false;
+}
+bool TimerSession::TimerDisable() {
+    if(timer_state_ == kTimerWorking){
+        timer_state_ = kTimerDisable;
+        printf("定时器已关闭\n");
+        fflush(stdout);
+        return true;
+    }
     return false;
 }
 
-TimerRetranslationSession::TimerRetranslationSession(int timing_second,SocketFileDescriptor client_fd, const char *packet_cache,size_t packet_length):
-TimerSession(timing_second),client_fd_(client_fd),packet_length_(packet_length){
+State TimerSession::get_timer_state_(){
+    return timer_state_;
+}
+
+
+TimerRetranslationSession::TimerRetranslationSession(int timing_second,uint8_t timer_id, SocketFileDescriptor client_fd, const char *packet_cache,size_t packet_length):
+        TimerSession(timing_second,timer_id),client_fd_(client_fd),packet_length_(packet_length){
     memcpy(packet_cache_,packet_cache,packet_length);
     timer_state_ = kTimerWorking;
 }
 bool TimerRetranslationSession::TimerTrigger() {
     if(timer_state_ == kTimerWorking) {
-        return send(client_fd_, packet_cache_, packet_length_, 0) > 0;
+//        TimerUpdate();
+        if(!ErrorSimulator(kTimingErrorProb)){
+            printf("\ndebug:定时器重传成功\n");
+            return send(client_fd_, packet_cache_, packet_length_, 0) > 0;
+        }
+        else{
+            printf("\ndebug:定时器重传但是出现了差错了\n");
+            return false;
+        }
     }
-    else return false;
+    else
+        return false;
 }
 
-TimerRemoveSession::TimerRemoveSession(int timing_second,bool(*function_point)()):
-TimerSession(timing_second),trigger_void_function_(function_point){
+TimerRemoveSession::TimerRemoveSession(int timing_second,uint8_t timer_id,bool(*function_point)()):
+        TimerSession(timing_second,timer_id),trigger_void_function_(function_point){
     timer_state_ = kTimerWorking;
 }
 bool TimerRemoveSession::TimerTrigger() {
     if(timer_state_ == kTimerWorking){
+//        TimerUpdate();
         return (*trigger_void_function_)();
     }
     else return false;
 }
 //endregion
+
+bool TimerDisable(uint8_t timer_id){
+    for(auto &iter :*timer_list){
+        if(iter->timer_id_==timer_id){
+            return iter->TimerDisable();
+        }
+    }
+    return false;
+}

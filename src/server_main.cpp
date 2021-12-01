@@ -7,11 +7,11 @@
 using namespace std;
 int conn_server_fd = 0;
 unsigned int session_id = 1;
-list<user_info>* user_list;
-list<client_session>* client_list;
-list<chap_session>* chap_list;
+list<UserInfo>* user_list;
+list<ClientSession>* client_list;
+list<ChapSession>* chap_list;
 list<FileSession>* file_list;
-list<TimerSession>* timer_list;
+list<TimerSession*>* timer_list;
 
 fd_set ser_fd_set{0};
 int max_fd=1;
@@ -19,10 +19,11 @@ const char server_data_dir[kDirLength] = "server_data/";
 
 int main(int argc,char **argv){
     char main_general_buffer[1024]={0};
-    user_list = new list<user_info>;
-    chap_list = new list<chap_session>;
+    user_list = new list<UserInfo>;
+    chap_list = new list<ChapSession>;
     file_list = new list<FileSession>;
-    client_list = new list<client_session>;
+    client_list = new list<ClientSession>;
+    timer_list = new list<TimerSession*>;
 
     mkdir(server_data_dir,S_IRWXU);
 
@@ -34,7 +35,7 @@ int main(int argc,char **argv){
     strcat(user_sheet_path,"user_sheet.csv");
     ifstream user_sheet_istream(user_sheet_path);
     string line;
-    user_info tmp_user{};
+    UserInfo tmp_user{};
     while(getline(user_sheet_istream,line)){
         cout<<"data<< "<<line<<endl;
         string::iterator chr;
@@ -72,7 +73,7 @@ int main(int argc,char **argv){
 
     if(user_list->empty()){
         printf("Warning: using default user_list...");
-        user_info tmp_ui = {.password=12345};
+        UserInfo tmp_ui = {.password=12345};
         strcpy(tmp_ui.user_name,"default");
         user_list->push_back(tmp_ui);
     }
@@ -100,7 +101,7 @@ int main(int argc,char **argv){
     }
 
     //listen 监听
-    if(listen(conn_server_fd, backlog) < 0)
+    if(listen(conn_server_fd, kBacklog) < 0)
     {
         perror("listen failure");
         return -1;
@@ -156,7 +157,7 @@ int main(int argc,char **argv){
 
             for (auto client_iterator = client_list->begin(); client_iterator != client_list->end(); ++client_iterator) {
                 if (FD_ISSET(client_iterator->socket_fd, &ser_fd_set)) {
-                    client_iterator->tick =clock();
+                    clock_gettime(CLOCK_MONOTONIC,&(client_iterator->tick));
                     if (EventClientMessage(&*client_iterator) == -1) {
                         FD_CLR(client_iterator->socket_fd, &ser_fd_set);
                         close(client_iterator->socket_fd);
@@ -175,20 +176,30 @@ int main(int argc,char **argv){
 
             //deal with the message
         else if (ret == 0) {
-            printf("time out!");
+//            printf("time out!");
             if(stdin_flag){
                 FD_SET(0,&ser_fd_set);
             }
             FD_SET(conn_server_fd, &ser_fd_set);
-            for(auto client_iter:*client_list){
-                FD_SET(client_iter.socket_fd, &ser_fd_set);
-            }
-            for(auto timer_iter:*timer_list){
-                if(timer_iter.TimeoutJustice()){
-                    timer_iter.TimerTrigger();
-                    timer_iter.TimerUpdate();
+            for(auto timer_iter = timer_list->begin();timer_iter!=timer_list->end();){
+                if((*timer_iter)->get_timer_state_()==kTimerDisable){
+
+                    timer_iter = timer_list->erase(timer_iter);
+                    printf("清理了一个定时器");
+                }
+                else{
+                    timer_iter++;
                 }
             }
+
+            for(auto &timer_iter:*timer_list){
+                if(timer_iter->TimeoutJustice()){
+                    timer_iter->TimerTrigger();
+                    timer_iter->TimerUpdate();
+                    fflush(stdout);
+                }
+            }
+
         } else {
             perror("select failure\n");
             continue;

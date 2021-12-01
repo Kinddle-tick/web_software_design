@@ -27,7 +27,7 @@ struct FileSession{
     uint32_t session_id;
     uint32_t sequence;
     FileDescriptor file_fd;
-    clock_t init_clock;
+    timespec init_time;
     uint32_t init_sequence;
 };
 
@@ -54,17 +54,20 @@ struct HelpDoc{
 class TimerSession{
 private:
     int retry_count_;
-    clock_t init_tick_;
+    timespec init_tick_{};
     int timing_second_;
 protected:
     State timer_state_;
 public:
-    explicit TimerSession(int);
+    uint8_t timer_id_;
+    explicit TimerSession(int,uint8_t);
     bool TimerUpdate();
     bool TimeoutJustice() const;
     void set_timing_second(int);
     int get_timing_second() const;
     virtual bool TimerTrigger();
+    bool TimerDisable();
+    State get_timer_state_();
 };
 
 class TimerRetranslationSession:public TimerSession{
@@ -73,7 +76,7 @@ private:
     SocketFileDescriptor client_fd_;
     size_t packet_length_;
 public:
-    TimerRetranslationSession(int,SocketFileDescriptor,const char*,size_t);
+    TimerRetranslationSession(int,uint8_t ,SocketFileDescriptor,const char*,size_t);
     bool TimerTrigger() override;
 };
 
@@ -81,7 +84,7 @@ class TimerRemoveSession:public TimerSession{
 private:
     bool (* trigger_void_function_)()= nullptr;
 public:
-    TimerRemoveSession(int, bool(*)());
+    TimerRemoveSession(int,uint8_t ,bool(*)());
     bool TimerTrigger() override;
 };
 
@@ -111,14 +114,17 @@ int ActionFileEndReceived(const char*);
 
 bool ErrorSimulator(int);
 
+bool TimerDisable(uint8_t);
 //endregion
 
 extern int conn_client_fd,gui_server_fd;
 extern bool cue_flag;
+extern uint8_t client_timer_id;
 
 extern fd_set * client_fd_set;
 extern std::list<FdInfo>* gui_client_list;
 extern std::list<FileSession>* file_list;
+extern std::list<TimerSession*>* timer_list;
 extern int max_fd;
 extern struct ClientSelfData * self_data;
 

@@ -92,34 +92,42 @@ union header{
     uint8_t proto;
     struct {
         uint8_t proto;
-        uint8_t zero_code[3];
+        uint8_t detail_code;
+        uint8_t timer_id_send;
+        uint8_t timer_id_rcv;
         uint32_t data_length;
         uint8_t zero[kHeaderSize - 8];
     }base_proto;
     struct {
-        uint8_t proto;
+        uint8_t proto=kProtoChap;
         uint8_t chap_code;
-        uint8_t one_data_size;
-        uint8_t zero_code;
+        uint8_t timer_id_send;
+        uint8_t timer_id_rcv;
         uint32_t data_length;
         uint32_t number_count;
         uint32_t sequence;
+        uint8_t one_data_size;
+        uint8_t zero_code;
     }chap_proto;
     struct {
-        uint8_t proto;
-        uint8_t zero_code[3];
+        uint8_t proto=kProtoMessage;
+        uint8_t zero_code;
+        uint8_t timer_id_send;
+        uint8_t timer_id_rcv;
         uint32_t data_length;
     }msg_proto;
     struct{
         uint8_t proto = kProtoControl;
         uint8_t ctl_code;
-        uint8_t zero_code[2];
+        uint8_t timer_id_send;
+        uint8_t timer_id_rcv;
         uint32_t data_length;
     }ctl_proto;
     struct{
         uint8_t proto = kProtoFile;
         uint8_t file_code;
-        uint8_t zero_code[2];
+        uint8_t timer_id_send;
+        uint8_t timer_id_rcv;
         uint32_t data_length;
         uint32_t frame_transport_length;
         uint32_t session_id;
@@ -143,12 +151,12 @@ union data{
         char chr[kBufferSize];
     }ctl_ls;
     struct {
-        clock_t init_clock;
-        char file_path[kBufferSize - sizeof(clock_t)];
+        time_t init_time;
+        char file_path[kBufferSize - sizeof(time_t)];
     }file_request;
     struct {
-        clock_t init_clock;
-        char file_path[kBufferSize - sizeof(clock_t)];
+        time_t init_time;
+        char file_path[kBufferSize - sizeof(time_t)];
     }file_response;
     struct {
         uint32_t CRC_32;
