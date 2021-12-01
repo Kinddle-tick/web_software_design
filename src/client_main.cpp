@@ -70,7 +70,7 @@ int main(int argc, const char * argv[]){
     strcpy(self_data->confirmUserName,"default");
     strcat(self_data->client_data_dir_now,self_data->confirmUserName);
     bool select_flag = true,stdin_flag= true;
-    struct timeval ctl_time{2,0};
+    struct timeval ctl_time{0,200000};//0.2s一轮
 //    logger_fd = open("client_logger",O_TRUNC|O_WRONLY|O_CREAT,S_IXUSR|S_IWUSR|S_IRUSR);
 //    logger_fptr = fdopen(logger_fd,"w");
 

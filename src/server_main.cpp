@@ -111,7 +111,7 @@ int main(int argc,char **argv){
     //region fd_set的初始化操作等
     //fd_set  准备fd_set
     bool select_flag = true,stdin_flag= true;
-    struct timeval ctl_time{1, 0};
+    struct timeval ctl_time{0, 100000};//0.1s一轮
 //    logger_fd = open("server_logger",O_TRUNC|O_WRONLY|O_CREAT,S_IXUSR|S_IWUSR|S_IRUSR);
 //    logger_fptr = fdopen(logger_fd,"w");
     //add standard input

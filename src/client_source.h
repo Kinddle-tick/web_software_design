@@ -57,20 +57,22 @@ struct HelpDoc{
 class TimerSession{
 private:
     int retry_count_;
+    timespec time_interval_{};
     timespec init_tick_{};
-    int timing_second_;
+//    int timing_second_;
+
     int retry_max_=10;
 protected:
     State timer_state_;
 public:
     uint8_t timer_id_;
     SocketFileDescriptor socket_fd_;
-    explicit TimerSession(int,uint8_t,SocketFileDescriptor);
+    explicit TimerSession(double_t ,uint8_t,SocketFileDescriptor);
     bool TimerUpdate();
     bool TimeoutJustice() const;
-    void set_timing_second(int);
+    void set_timing_interval(double_t time_interval_);
     void set_retry_max(int);
-    int get_timing_second() const;
+    double_t get_timing_interval() const;
     virtual bool TimerTrigger();
     bool TimerDisable();
     State get_timer_state_();
@@ -82,7 +84,7 @@ private:
     SocketFileDescriptor client_fd_;
     size_t packet_length_;
 public:
-    TimerRetranslationSession(int,uint8_t ,SocketFileDescriptor,const char*,size_t);
+    TimerRetranslationSession(double_t ,uint8_t ,SocketFileDescriptor,const char*,size_t);
     bool TimerTrigger() override;
 };
 
@@ -90,7 +92,7 @@ class TimerRemoveSession:public TimerSession{
 private:
     bool (* trigger_void_function_)()= nullptr;
 public:
-    TimerRemoveSession(int,uint8_t ,SocketFileDescriptor,bool(*)());
+    TimerRemoveSession(double_t ,uint8_t ,SocketFileDescriptor,bool(*)());
     bool TimerTrigger() override;
 };
 

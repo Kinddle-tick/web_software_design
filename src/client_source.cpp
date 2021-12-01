@@ -346,7 +346,7 @@ int ActionGeneralFinishSend(const char * receive_packet_total){
                                           .timer_id_confirm=receive_packet_header->base_proto.timer_id_tied,
                                           .data_length=htonl(0),
                                           }};
-    auto* tmp_timer = new TimerRetranslationSession(5,send_packet_header.base_proto.timer_id_tied,conn_client_fd,
+    auto* tmp_timer = new TimerRetranslationSession(kGenericTimeInterval,send_packet_header.base_proto.timer_id_tied,conn_client_fd,
                                                     (const char *)&send_packet_header,kHeaderSize+ntohl(send_packet_header.chap_proto.data_length));
     tmp_timer->set_retry_max(3);
     timer_list->push_back(tmp_timer);
@@ -445,7 +445,7 @@ int ActionChapResponse(const char* receive_packet_total){
 
     send_packet_header->chap_proto.timer_id_tied = client_timer_id = client_timer_id%255+1;
     send_packet_header->chap_proto.timer_id_confirm = receive_packet_header->chap_proto.timer_id_tied;
-    auto* tmp_timer = new TimerRetranslationSession(5,send_packet_header->chap_proto.timer_id_tied,conn_client_fd,
+    auto* tmp_timer = new TimerRetranslationSession(kGenericTimeInterval,send_packet_header->chap_proto.timer_id_tied,conn_client_fd,
                                                     send_packet_total,kHeaderSize + ntohl(send_packet_header->chap_proto.data_length));
     timer_list->push_back(tmp_timer);
     TimerDisable(receive_packet_header->chap_proto.timer_id_confirm,conn_client_fd);
@@ -505,7 +505,7 @@ int ActionControlLogin(){
         //region 范式
         send_packet_header->ctl_proto.timer_id_tied= client_timer_id = client_timer_id % 255 + 1;
         send_packet_header->ctl_proto.timer_id_confirm = 0;//作为流程中第一个触发的报文 不会存在在另一侧绑定的报文数字
-        auto* tmp_timer=new TimerRetranslationSession(5, send_packet_header->ctl_proto.timer_id_tied, conn_client_fd, send_packet_total,
+        auto* tmp_timer=new TimerRetranslationSession(kGenericTimeInterval, send_packet_header->ctl_proto.timer_id_tied, conn_client_fd, send_packet_total,
                                                       kHeaderSize + ntohl(send_packet_header->ctl_proto.data_length));
         timer_list->push_back(tmp_timer);
         TimerDisable(0,conn_client_fd);
@@ -696,15 +696,17 @@ int ActionReceiveMessageFromServer(const char* receive_packet_total){
 }
 
 //region TimerSession实现代码
-TimerSession::TimerSession(int timing_second,uint8_t the_timer_id,SocketFileDescriptor socket_fd)
-:timer_id_(the_timer_id),timing_second_(timing_second),socket_fd_(socket_fd),retry_count_(0),timer_state_(kTimerInit){
+TimerSession::TimerSession(double_t time_interval, uint8_t the_timer_id, SocketFileDescriptor socket_fd)
+:timer_id_(the_timer_id),socket_fd_(socket_fd),retry_count_(0),timer_state_(kTimerInit){
+    set_timing_interval(time_interval);
     clock_gettime(CLOCK_MONOTONIC,&init_tick_);
 }
-void TimerSession::set_timing_second(int timing_second) {
-    timing_second_=timing_second;
+void TimerSession::set_timing_interval(double_t time_interval) {
+    time_interval_.tv_sec = (long)time_interval;
+    time_interval_.tv_nsec = (long)(time_interval*1e9 - (time_interval_.tv_sec)*1e9);
 }
-int TimerSession::get_timing_second() const{
-    return timing_second_;
+double_t TimerSession::get_timing_interval() const{
+    return (double_t)time_interval_.tv_sec +(double_t)time_interval_.tv_nsec/1e9;
 }
 void TimerSession::set_retry_max(int retry_max) {
     retry_max_ = retry_max;
@@ -712,17 +714,30 @@ void TimerSession::set_retry_max(int retry_max) {
 bool TimerSession::TimeoutJustice() const {
     timespec tmp_time{};
     clock_gettime(CLOCK_MONOTONIC,&tmp_time);
-    time_t tmp = tmp_time.tv_sec - init_tick_.tv_sec;
+    tmp_time.tv_sec = tmp_time.tv_nsec>=init_tick_.tv_nsec ? tmp_time.tv_sec-init_tick_.tv_sec : tmp_time.tv_sec-init_tick_.tv_sec-1;
+    tmp_time.tv_nsec = tmp_time.tv_nsec>=init_tick_.tv_nsec ? tmp_time.tv_nsec-init_tick_.tv_nsec : 1000000000+tmp_time.tv_sec-init_tick_.tv_sec;
+
+//    time_t tmp = tmp_time.tv_sec - init_tick_.tv_sec;
+
 #if CLIENT_DEBUG_LEVEL >2
-    printf("(%d):%ld, ",timer_id_,tmp);
+    printf("(%d):%ld, ",timer_id_,tmp_time.tv_sec);
 #endif
     fflush(stdout);
-    return (tmp) >timing_second_;
+    if(tmp_time.tv_sec>time_interval_.tv_sec){
+        return true;
+    } else if(tmp_time.tv_sec==time_interval_.tv_sec){
+        if(tmp_time.tv_nsec>init_tick_.tv_nsec){
+            return true;
+        }
+    }
+    return false;
 }
 bool TimerSession::TimerUpdate() {
     retry_count_+=1;
     if(retry_count_<retry_max_){
-        timing_second_*=2;
+        time_interval_.tv_sec = time_interval_.tv_nsec<500000000 ? time_interval_.tv_sec*2 : time_interval_.tv_sec*2+1;
+        time_interval_.tv_nsec = time_interval_.tv_nsec<500000000 ? time_interval_.tv_nsec*2 : time_interval_.tv_nsec*2-100000000;
+//        timing_second_*=2;
         clock_gettime(CLOCK_MONOTONIC,&init_tick_);
         return true;
     } else{
@@ -750,9 +765,9 @@ State TimerSession::get_timer_state_(){
 }
 
 
-TimerRetranslationSession::TimerRetranslationSession(int timing_second,uint8_t timer_id, SocketFileDescriptor client_fd,
-                                                     const char *packet_cache,size_t packet_length):
-        TimerSession(timing_second,timer_id,client_fd),client_fd_(client_fd),packet_length_(packet_length){
+TimerRetranslationSession::TimerRetranslationSession(double_t timing_interval, uint8_t timer_id, SocketFileDescriptor client_fd,
+                                                     const char *packet_cache, size_t packet_length):
+        TimerSession(timing_interval, timer_id, client_fd), client_fd_(client_fd), packet_length_(packet_length){
     memcpy(packet_cache_,packet_cache,packet_length);
     timer_state_ = kTimerWorking;
 }
@@ -777,8 +792,8 @@ bool TimerRetranslationSession::TimerTrigger() {
         return false;
 }
 
-TimerRemoveSession::TimerRemoveSession(int timing_second,uint8_t timer_id,SocketFileDescriptor socket_fd,bool(*function_point)()):
-        TimerSession(timing_second,timer_id,socket_fd),trigger_void_function_(function_point){
+TimerRemoveSession::TimerRemoveSession(double_t timing_interval, uint8_t timer_id, SocketFileDescriptor socket_fd, bool(*function_point)()):
+        TimerSession(timing_interval, timer_id, socket_fd), trigger_void_function_(function_point){
     timer_state_ = kTimerWorking;
 }
 bool TimerRemoveSession::TimerTrigger() {

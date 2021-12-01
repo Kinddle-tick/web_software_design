@@ -32,8 +32,7 @@ const int kGenericErrorProb = 100; //debug--第一次发送必定出错，用定
 const int kTimingErrorProb = 0;
 const int kGenericAckProb = 20; //ack确认帧的丢包概率，这个万万不要超过一百。否则一次完整的会话将一直无法结束。
 
-const time_t kGenericRetryIntervalSecond = 1;//second
-const long kGenericRetryIntervalMicroSecond = 500;//usecond
+const double kGenericTimeInterval = 0.5;
 
 typedef int SocketFileDescriptor;
 typedef int FileDescriptor;
