@@ -84,6 +84,7 @@ ssize_t EventServerMessage() {
                     case kControlLs:
                         BaseActionInterrupt();
                         cout<<"\n"<<(((data *)(receive_message + kHeaderSize))->ctl_ls.chr);
+                        ActionGeneralFinishSend(receive_message);
                         cue_flag = true;
                         return kProtoControl | kControlLs << 2;
                     default:
@@ -279,7 +280,13 @@ int EventStdinMessage(){
         cout<<"register 未实现";
     }
     else if (!strcmp(para[0],"msg")){
-        int rtn = ActionSendMessageToServer(para[1]);
+        int rtn = 0;
+        if(para_count == 3){
+            rtn = ActionSendMessageToServer(para[2],para[1]);
+        }
+        else{
+            rtn = ActionSendMessageToServer(para[1],"");
+        }
         if(rtn == -1){
             return kOtherError;
         }else{
@@ -525,13 +532,22 @@ int ActionControlLogin(){
 
 int ActionControlLs(){
     if(self_data->state == kOnline){
-        char packet_total[kHeaderSize + kBufferSize]={0};
-        auto* packet_header = (header*)packet_total;
-        auto* packet_data = (data*)(packet_total + kHeaderSize);
-        packet_header->proto=kProtoControl;
-        packet_header->ctl_proto.ctl_code = kControlLs;
-        packet_header->ctl_proto.data_length = htonl(0);
-        send(conn_client_fd, packet_total, kHeaderSize + ntohl(packet_header->ctl_proto.data_length), 0);
+        char send_packet_total[kHeaderSize + kBufferSize]={0};
+        auto* send_packet_header = (header*)send_packet_total;
+        auto* send_packet_data = (data*)(send_packet_total + kHeaderSize);
+        send_packet_header->proto=kProtoControl;
+        send_packet_header->ctl_proto.ctl_code = kControlLs;
+        send_packet_header->ctl_proto.data_length = htonl(0);
+
+        send_packet_header->ctl_proto.timer_id_tied = client_timer_id = client_timer_id % 255 + 1;
+        send_packet_header->chap_proto.timer_id_confirm =0;
+        auto* tmp_timer = new TimerRetranslationSession(kGenericTimeInterval,send_packet_header->ctl_proto.timer_id_tied,conn_client_fd,
+                                                        send_packet_total,kHeaderSize+ntohl(send_packet_header->ctl_proto.data_length));
+        timer_list->push_back((tmp_timer));
+        TimerDisable(0,conn_client_fd);
+        if(!ErrorSimulator(kGenericErrorProb)){
+            send(conn_client_fd, send_packet_total, kHeaderSize + ntohl(send_packet_header->ctl_proto.data_length), 0);
+        }
         return 0;
     }
     else{
@@ -657,20 +673,29 @@ int ActionFileEndReceived(const char* received_packet_total){
     cout<<"没有在列表里找到相应的文件"<<endl;
     return -1;
 }
-
-int ActionSendMessageToServer(const char* message){
+//默认洪泛了似乎
+int ActionSendMessageToServer(const char* message,const char* username=""){
     if(self_data->state == kOnline) {
-        char send_message_packet[kHeaderSize + kBufferSize]={0};
-        auto * send_message_header=(header*)send_message_packet;
-        auto * send_message_data = (data *)(send_message_packet + kHeaderSize);
+        char send_packet_total[kHeaderSize + kBufferSize]={0};
+        auto * send_packet_header=(header*)send_packet_total;
+        auto * send_packet_data = (data *)(send_packet_total + kHeaderSize);
 
-        send_message_header->msg_proto.proto = kProtoMessage;
-        strcpy(send_message_data->msg_general.msg_data, message);
+        send_packet_header->msg_proto.proto = kProtoMessage;
+        strcpy(send_packet_data->msg_general.userName, username);
+        strcpy(send_packet_data->msg_general.msg_data, message);
+        send_packet_header->msg_proto.data_length = htonl(strlen(send_packet_data->msg_general.msg_data)
+                                                          + sizeof(send_packet_data->msg_general.userName));
 
-        cout << "[send->server] message send to server:" << send_message_data->msg_general.msg_data << endl;
-        send_message_header->msg_proto.data_length = htonl(strlen(send_message_data->msg_general.msg_data)
-                                                     + sizeof(send_message_data->msg_general.userName));
-        send(conn_client_fd, send_message_packet, kHeaderSize + ntohl(send_message_header->msg_proto.data_length), 0);
+        send_packet_header->msg_proto.timer_id_tied=client_timer_id=client_timer_id%255+1;
+        send_packet_header->msg_proto.timer_id_confirm=0;
+        auto*tmp_timer = new TimerRetranslationSession(kGenericTimeInterval,send_packet_header->msg_proto.timer_id_tied,conn_client_fd,
+                                                       send_packet_total,kHeaderSize+ ntohl(send_packet_header->msg_proto.data_length));
+        timer_list->push_back(tmp_timer);
+        TimerDisable(0,conn_client_fd);
+        if(!ErrorSimulator(kGenericErrorProb)){
+            send(conn_client_fd, send_packet_total, kHeaderSize + ntohl(send_packet_header->msg_proto.data_length), 0);
+        }
+        cout << "[send->server] message send to server:" << send_packet_data->msg_general.msg_data << endl;
         cue_flag = true;
         return 0;
     }
@@ -685,7 +710,7 @@ int ActionReceiveMessageFromServer(const char* receive_packet_total){
     auto* packet_header = (header*)receive_packet_total;
     auto* packet_data  = (data*)(receive_packet_total + kHeaderSize);
     cout<<"\n[sur-rcv] message form server("<<conn_client_fd<<"):\033[34m"<<packet_data->msg_general.msg_data<<"\033[0m"<<endl;
-
+    ActionGeneralFinishSend(receive_packet_total);
     // 广播到所有客户端（gui）
     for (auto & client_point : *gui_client_list) {
         cout<<"[sur-rcv] send message to client("<<client_point.nickname<<").socket_fd = "<<client_point.fd<<endl;

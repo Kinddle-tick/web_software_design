@@ -174,37 +174,66 @@ int ActionGeneralAckReceive(const char * receive_packet_total, ClientSession * c
 }
 
 int ActionMessageProcessing(const char* receive_packet_total, ClientSession* client){
-    auto* packet_header = (header*)receive_packet_total;
-    auto* packet_data = (data*)(receive_packet_total + kHeaderSize);
-//    UserNameString from_user = {0};
-//    strcpy(from_user,packet_data->msg_general.userName);
-
-    printf("message form client(%s):%s\n", client->nickname, packet_data->msg_general.msg_data );
-    packet_header->msg_proto.data_length = htonl(sizeof(UserNameString) + strlen(packet_data->msg_general.msg_data));
-    bool flood_flag = (strcmp(packet_data->msg_general.userName,"") == 0);
-    strcpy(packet_data->msg_general.userName,client->nickname);
+    auto* receive_packet_header = (header*)receive_packet_total;
+    auto* receive_packet_data = (data*)(receive_packet_total + kHeaderSize);
+    printf("message form client(%s):%s\n", client->nickname, receive_packet_data->msg_general.msg_data );
+    ActionGeneralFinishSend(receive_packet_total,client);//msg收到即是结束
+    //转发
+    char send_packet_total[kHeaderSize+kBufferSize]={0};
+    auto* send_packet_header = (header*)send_packet_total;
+    auto* send_packet_data = (data*)(send_packet_total + kHeaderSize);
+    send_packet_header->proto = kProtoMessage;
+    strcpy(send_packet_data->msg_general.userName, client->nickname);
+    strcpy(send_packet_data->msg_general.msg_data,receive_packet_data->msg_general.msg_data);
+    send_packet_header->msg_proto.data_length = htonl(sizeof(UserNameString) + strlen(send_packet_data->msg_general.msg_data));
+    bool flood_flag = (strcmp(send_packet_data->msg_general.userName, "") == 0);
 
     // 广播到所有客户端
     for(auto client_point = client_list->begin(); client_point != client_list->end(); ++client_point){
         if(flood_flag){
             if(client_point->socket_fd != client->socket_fd){
                 printf("send message to client(%s).socket_fd=%d with %s\n",
-                       client_point->nickname, client_point->socket_fd, packet_data->msg_general.msg_data);
-                send(client_point->socket_fd, receive_packet_total,
-                     kHeaderSize + ntohl(packet_header->msg_proto.data_length), 0);
-            }else if(client_list->size() == 1){
+                       client_point->nickname, client_point->socket_fd, send_packet_data->msg_general.msg_data);
+                send_packet_header->msg_proto.timer_id_tied = client->server_timer_id=client->server_timer_id%255+1;
+                send_packet_header->msg_proto.timer_id_confirm=0;
+                auto* tmp_timer = new TimerRetranslationSession(kGenericTimeInterval,send_packet_header->msg_proto.timer_id_tied,client->socket_fd,
+                                                                send_packet_total,kHeaderSize + ntohl(send_packet_header->msg_proto.data_length));
+                timer_list->push_back(tmp_timer);
+                TimerDisable(0,client->socket_fd);
+                if(!ErrorSimulator(kGenericErrorProb)){
+                    send(client_point->socket_fd, receive_packet_total,
+                         kHeaderSize + ntohl(send_packet_header->msg_proto.data_length), 0);
+                }
+            }
+            else if(client_list->size() == 1){
                 printf("echo message to client(%s).socket_fd=%d with %s\n",
-                       client_point->nickname, client_point->socket_fd, packet_data->msg_general.msg_data);
-                send(client_point->socket_fd, receive_packet_total,
-                     kHeaderSize + ntohl(packet_header->msg_proto.data_length), 0);
+                       client_point->nickname, client_point->socket_fd, send_packet_data->msg_general.msg_data);
+                send_packet_header->msg_proto.timer_id_tied = client->server_timer_id=client->server_timer_id%255+1;
+                send_packet_header->msg_proto.timer_id_confirm=0;
+                auto* tmp_timer = new TimerRetranslationSession(kGenericTimeInterval,send_packet_header->msg_proto.timer_id_tied,client->socket_fd,
+                                                                send_packet_total,kHeaderSize + ntohl(send_packet_header->msg_proto.data_length));
+                timer_list->push_back(tmp_timer);
+                TimerDisable(0,client->socket_fd);
+                if(!ErrorSimulator(kGenericErrorProb)){
+                    send(client_point->socket_fd, receive_packet_total,
+                         kHeaderSize + ntohl(send_packet_header->msg_proto.data_length), 0);
+                }
             }
         }
         else{
-            if(strcmp(client_point->nickname,packet_data->msg_general.userName) == 0){
+            if(strcmp(client_point->nickname, send_packet_data->msg_general.userName) == 0){
                 printf("send message to client(%s).socket_fd=%d with %s\n",
-                       client_point->nickname, client_point->socket_fd, packet_data->msg_general.msg_data);
-                send(client_point->socket_fd, receive_packet_total,
-                     kHeaderSize + ntohl(packet_header->msg_proto.data_length), 0);
+                       client_point->nickname, client_point->socket_fd, send_packet_data->msg_general.msg_data);
+                send_packet_header->msg_proto.timer_id_tied = client->server_timer_id=client->server_timer_id%255+1;
+                send_packet_header->msg_proto.timer_id_confirm=0;
+                auto* tmp_timer = new TimerRetranslationSession(kGenericTimeInterval,send_packet_header->msg_proto.timer_id_tied,client->socket_fd,
+                                                                send_packet_total,kHeaderSize + ntohl(send_packet_header->msg_proto.data_length));
+                timer_list->push_back(tmp_timer);
+                TimerDisable(0,client->socket_fd);
+                if(!ErrorSimulator(kGenericErrorProb)){
+                    send(client_point->socket_fd, receive_packet_total,
+                         kHeaderSize + ntohl(send_packet_header->msg_proto.data_length), 0);
+                }
             }
         }
 
@@ -241,6 +270,7 @@ unsigned int ActionControlUnregistered(const char *receive_packet_total,ClientSe
 
 int ActionControlLsResponse(const char *receive_packet_total,ClientSession* client){
     if(client->state == kOnline){
+        auto* receive_packet_header = (header*)receive_packet_total;
         DIR *dir = opendir(client->now_path);
         if(dir == nullptr){
             cout<<"client ("<<client->nickname<<")的ls请求被拒绝: 用户根目录无效"<<endl;
@@ -258,7 +288,15 @@ int ActionControlLsResponse(const char *receive_packet_total,ClientSession* clie
         }
         closedir(dir);
         response_header->ctl_proto.data_length =  htonl(strlen(response_data->ctl_ls.chr));
-        send(client->socket_fd, response_packet, kHeaderSize + ntohl(response_header->ctl_proto.data_length), 0);
+        response_header->ctl_proto.timer_id_tied = client->server_timer_id = client->server_timer_id%255+1;
+        response_header->ctl_proto.timer_id_confirm = receive_packet_header->ctl_proto.timer_id_tied;
+        auto* tmp_timer = new TimerRetranslationSession(kGenericTimeInterval,response_header->ctl_proto.timer_id_tied,client->socket_fd,
+                                                        response_packet,kHeaderSize+ntohl(response_header->ctl_proto.data_length));
+        timer_list->push_back(tmp_timer);
+        TimerDisable(receive_packet_header->ctl_proto.timer_id_confirm,client->socket_fd);
+        if(!ErrorSimulator(kGenericErrorProb)){
+            send(client->socket_fd, response_packet, kHeaderSize + ntohl(response_header->ctl_proto.data_length), 0);
+        }
         return 0;
     } else{
         cout<<"client ("<<client->nickname<<")的ls请求被拒绝: 非Online状态没有权限"<<endl;

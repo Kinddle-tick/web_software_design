@@ -110,7 +110,7 @@ int ActionGeneralAckSend(const char *);
 int ActionGeneralAckReceive(const char *);
 
 void BaseActionInterrupt();
-int ActionSendMessageToServer(const char*);
+int ActionSendMessageToServer(const char*,const char*);
 int ActionReceiveMessageFromServer(const char*);
 int ActionChapResponse(const char*);
 int ActionPrintConsoleHelp(const char*);
