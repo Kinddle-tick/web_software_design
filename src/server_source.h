@@ -41,6 +41,40 @@ struct FileSession{
     State state;
     clock_t tick;
 };
+
+class TimerSession{
+private:
+    int retry_count_;
+    clock_t init_tick_;
+    int timing_second_;
+protected:
+    State timer_state_;
+public:
+    explicit TimerSession(int);
+    bool TimerUpdate();
+    bool TimeoutJustice() const;
+    void set_timing_second(int);
+    int get_timing_second() const;
+    virtual bool TimerTrigger();
+};
+
+class TimerRetranslationSession:public TimerSession{
+private:
+    char packet_cache_[kHeaderSize+kBufferSize]{0};
+    SocketFileDescriptor client_fd_;
+    size_t packet_length_;
+public:
+    TimerRetranslationSession(int,SocketFileDescriptor,const char*,size_t);
+    bool TimerTrigger() override;
+};
+
+class TimerRemoveSession:public TimerSession{
+private:
+    bool (* trigger_void_function_)()= nullptr;
+public:
+    TimerRemoveSession(int, bool(*)());
+    bool TimerTrigger() override;
+};
 //endregion
 
 //region 函数原型声明
@@ -57,7 +91,12 @@ int ActionFileResponse(const char*, client_session*);
 int ActionFileTranslating(FileSession*, client_session*);
 int ActionFileAckReceived(const char*, client_session*);
 int ActionFileEndSend(const char*, client_session*);
-int ActionMessageProcessing(const char *receive_packet_total, client_session *client);
+int ActionMessageProcessing(const char *, client_session *);
+
+ssize_t TimeoutActionRetransmission(const char * ,client_session *);
+
+bool ErrorSimulator(int);
+
 //endregion
 
 extern int conn_server_fd;
@@ -66,5 +105,5 @@ extern std::list<client_session>* client_list;
 extern std::list<chap_session>* chap_list;
 extern std::list<user_info>* user_list;
 extern std::list<FileSession>* file_list;
-
+extern std::list<TimerSession>* timer_list;
 #endif //WEB_SOFTWARE_DESIGN_COURSE_DESIGN_SERVER_SOURCE_H

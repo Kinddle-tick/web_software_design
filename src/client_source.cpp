@@ -53,6 +53,15 @@ HelpDoc client_help[]={
 };
 //endregion
 
+bool ErrorSimulator(int prob=0){
+    if(random()%100 < prob){
+        return true;
+    }
+    else{
+        return false;
+    }
+}
+
 ssize_t EventServerMessage() {
 #if CLIENT_DEBUG_LEVEL >0
     cout<<"[DEBUG]: EventStdinMsg"<<endl;
@@ -607,3 +616,54 @@ int ActionReceiveMessageFromServer(const char* receive_packet_total){
     }
     return 0;
 }
+
+//region TimerSession实现代码
+TimerSession::TimerSession(int timing_second):timing_second_(timing_second),retry_count_(0),init_tick_(clock()),timer_state_(kTimerInit){}
+void TimerSession::set_timing_second(int timing_second) {
+    timing_second_=timing_second;
+}
+int TimerSession::get_timing_second() const{
+    return timing_second_;
+}
+bool TimerSession::TimeoutJustice() const {
+    return (clock() - init_tick_)/CLOCKS_PER_SEC >timing_second_;
+}
+bool TimerSession::TimerUpdate() {
+    retry_count_+=1;
+    if(retry_count_<5){
+        timing_second_*=2;
+        init_tick_ = clock();
+        return true;
+    } else{
+        return false;
+    }
+}
+bool TimerSession::TimerTrigger(){
+    printf("debug:使用了父类的虚函数");
+    return false;
+}
+
+TimerRetranslationSession::TimerRetranslationSession(int timing_second,SocketFileDescriptor client_fd, const char *packet_cache,size_t packet_length):
+        TimerSession(timing_second),client_fd_(client_fd),packet_length_(packet_length){
+    memcpy(packet_cache_,packet_cache,packet_length);
+    timer_state_ = kTimerWorking;
+}
+bool TimerRetranslationSession::TimerTrigger() {
+    if(timer_state_ == kTimerWorking) {
+        return send(client_fd_, packet_cache_, packet_length_, 0) > 0;
+    }
+    else return false;
+}
+
+TimerRemoveSession::TimerRemoveSession(int timing_second,bool(*function_point)()):
+        TimerSession(timing_second),trigger_void_function_(function_point){
+    timer_state_ = kTimerWorking;
+}
+bool TimerRemoveSession::TimerTrigger() {
+    if(timer_state_ == kTimerWorking){
+        return (*trigger_void_function_)();
+    }
+    else return false;
+}
+//endregion
+

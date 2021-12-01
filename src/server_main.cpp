@@ -11,6 +11,7 @@ list<user_info>* user_list;
 list<client_session>* client_list;
 list<chap_session>* chap_list;
 list<FileSession>* file_list;
+list<TimerSession>* timer_list;
 
 fd_set ser_fd_set{0};
 int max_fd=1;
@@ -182,7 +183,12 @@ int main(int argc,char **argv){
             for(auto client_iter:*client_list){
                 FD_SET(client_iter.socket_fd, &ser_fd_set);
             }
-
+            for(auto timer_iter:*timer_list){
+                if(timer_iter.TimeoutJustice()){
+                    timer_iter.TimerTrigger();
+                    timer_iter.TimerUpdate();
+                }
+            }
         } else {
             perror("select failure\n");
             continue;

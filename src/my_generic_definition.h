@@ -28,6 +28,9 @@ const int kBufferSize = 1004;
 const int kServerPort = 11290;
 const int kUserPathMaxLength = (512 - kUsernameLength - sizeof(unsigned int));
 
+const int kGenericErrorProb = 100; //debug--第一次发送必定出错，用定时器发送必定成功
+const int kTimingErrorProb = 0;
+
 typedef int SocketFileDescriptor;
 typedef int FileDescriptor;
 typedef char UserNameString[kUsernameLength];
@@ -62,6 +65,11 @@ enum State : char {
     kFileAck,
     kFileError,
     kFileEnd,
+
+    kTimerInit,
+    kTimerWorking,
+    kTimerDisable,
+
 };
 
 enum Protocol : char{

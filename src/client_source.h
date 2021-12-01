@@ -50,6 +50,41 @@ struct HelpDoc{
     const char * cmd_description = nullptr;
     const char * cmd_pattern = nullptr;
 };
+
+class TimerSession{
+private:
+    int retry_count_;
+    clock_t init_tick_;
+    int timing_second_;
+protected:
+    State timer_state_;
+public:
+    explicit TimerSession(int);
+    bool TimerUpdate();
+    bool TimeoutJustice() const;
+    void set_timing_second(int);
+    int get_timing_second() const;
+    virtual bool TimerTrigger();
+};
+
+class TimerRetranslationSession:public TimerSession{
+private:
+    char packet_cache_[kHeaderSize+kBufferSize]{0};
+    SocketFileDescriptor client_fd_;
+    size_t packet_length_;
+public:
+    TimerRetranslationSession(int,SocketFileDescriptor,const char*,size_t);
+    bool TimerTrigger() override;
+};
+
+class TimerRemoveSession:public TimerSession{
+private:
+    bool (* trigger_void_function_)()= nullptr;
+public:
+    TimerRemoveSession(int, bool(*)());
+    bool TimerTrigger() override;
+};
+
 //endregion
 
 //region 函数原型声明
@@ -73,6 +108,9 @@ int ActionFileTransportingReceived(const char*);
 int ActionFileAckSend(uint32_t, uint32_t);
 int ActionFileErrorSend(uint32_t, uint32_t);
 int ActionFileEndReceived(const char*);
+
+bool ErrorSimulator(int);
+
 //endregion
 
 extern int conn_client_fd,gui_server_fd;
