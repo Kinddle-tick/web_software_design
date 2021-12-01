@@ -61,7 +61,7 @@ int EventNewClient(){
 }
 
 int EventClientMessage(ClientSession* client){
-
+//    printf("debug:收到客户端fd(%d)信息",client->socket_fd);
     char receive_message[kHeaderSize + kBufferSize]={0};
     auto* packet_header = (header *)(receive_message);
     ssize_t byte_num = read(client->socket_fd, receive_message, kHeaderSize);
@@ -87,10 +87,10 @@ int EventClientMessage(ClientSession* client){
                         cout<<"receive invalid CTL_code";
                         break;
                 }
-                break;
+                return kProtoControl;
             case kProtoMessage:
                 ActionMessageProcessing(receive_message, client);
-                break;
+                return kProtoMessage;
             case kProtoChap:
                 switch (receive_packet_header->chap_proto.chap_code) {
                     case kChapResponse:
@@ -99,7 +99,7 @@ int EventClientMessage(ClientSession* client){
                     default:
                         printf("\tInvalid CHAP_CODE\n");
                 }
-                break;
+                return kProtoChap;
             case kProtoFile:
                 switch (receive_packet_header->file_proto.file_code) {
                     case kFileRequest:
@@ -107,8 +107,17 @@ int EventClientMessage(ClientSession* client){
                         break;
                     case kFileAck:
                         ActionFileAckReceived(receive_message,client);
+                        break;
+                    default:
+                        break;
                 }
-                break;
+                return kProtoFile;
+            case kProtoGeneralAck:
+                ActionGeneralAckReceive(receive_message,client);
+                return kProtoGeneralAck;
+            case kProtoGeneralFinish:
+                ActionGeneralFinishReceive(receive_message,client);
+                return kProtoGeneralFinish;
         }
 
     }
@@ -118,6 +127,49 @@ int EventClientMessage(ClientSession* client){
         printf("client(%s) exit!\n",client->nickname);
         return -1;
     }
+    return 0;
+}
+
+int ActionGeneralFinishSend(const char * receive_packet_total,ClientSession * client){
+    auto* receive_packet_header = (header*)receive_packet_total;
+    header send_packet_header{.base_proto{.proto=kProtoGeneralFinish,
+            .detail_code =0,
+            .timer_id_tied = client->server_timer_id = client->server_timer_id % 255 + 1,
+            .timer_id_confirm=receive_packet_header->base_proto.timer_id_tied,
+            .data_length=htonl(0),
+    }};
+    auto* tmp_timer = new TimerRetranslationSession(5,send_packet_header.base_proto.timer_id_tied,client->socket_fd,
+                                                    (const char *)&send_packet_header,kHeaderSize+ntohl(send_packet_header.chap_proto.data_length));
+    tmp_timer->set_retry_max(3);
+    timer_list->push_back(tmp_timer);
+    TimerDisable(receive_packet_header->base_proto.timer_id_confirm,client->socket_fd);
+    if(!ErrorSimulator(kGenericErrorProb)){
+        send(client->socket_fd,&send_packet_header,kHeaderSize+ntohl(send_packet_header.base_proto.data_length),0);
+    }
+    return 0;
+}
+int ActionGeneralFinishReceive(const char *receive_packet_total,ClientSession * client){
+    ActionGeneralAckSend(receive_packet_total,client);
+    return 0;
+}
+
+int ActionGeneralAckSend(const char * receive_packet_total, ClientSession * client){
+    auto* receive_packet_header = (header*)receive_packet_total;
+    header send_packet_header{.base_proto{.proto=kProtoGeneralAck,
+                                          .detail_code = receive_packet_header->base_proto.detail_code,
+                                          .timer_id_tied = 0,
+                                          .timer_id_confirm=receive_packet_header->base_proto.timer_id_tied,
+                                          .data_length = htonl(0)
+            }};
+    TimerDisable(receive_packet_header->base_proto.timer_id_confirm,client->socket_fd);
+    if(!ErrorSimulator(kGenericAckProb)){
+        send(client->socket_fd, &send_packet_header, kHeaderSize + ntohl(send_packet_header.chap_proto.data_length), 0);
+    }
+    return 0;
+}
+int ActionGeneralAckReceive(const char * receive_packet_total, ClientSession * client){
+    auto* receive_packet_header = (header*)receive_packet_total;
+    TimerDisable(receive_packet_header->base_proto.timer_id_confirm,client->socket_fd);
     return 0;
 }
 
@@ -216,7 +268,7 @@ int ActionControlLsResponse(const char *receive_packet_total,ClientSession* clie
 
 unsigned int ActionChapChallenge(const char *receive_packet_total,ClientSession* client){
     auto* receive_packet_header = (header*)receive_packet_total;
-    char packet_total[kHeaderSize + kBufferSize]={};
+    char send_packet_total[kHeaderSize + kBufferSize]={};
     clock_t seed = clock();
     srand(seed);//这里用time是最经典的 但是因为服务端总是要等很久 每次连接的时间其实差别很大 所以用clock()我觉得不会有问题
     uint8_t  one_data_size = random() % 3; // 2**one_data_size arc4random()是一个非常不错的替代解法 但是这边还是用了rand先
@@ -237,12 +289,12 @@ unsigned int ActionChapChallenge(const char *receive_packet_total,ClientSession*
         sequence*=4;
     }
 
-    auto* packet_header=(header *)packet_total;
-    packet_header->chap_proto.proto = kProtoChap;
-    packet_header->chap_proto.chap_code = kChapChallenging;
-    packet_header->chap_proto.one_data_size=one_data_size;
-    packet_header->chap_proto.number_count=htonl(number_count);
-    packet_header->chap_proto.sequence = htonl(sequence);
+    auto* send_packet_header=(header *)send_packet_total;
+    send_packet_header->chap_proto.proto = kProtoChap;
+    send_packet_header->chap_proto.chap_code = kChapChallenging;
+    send_packet_header->chap_proto.one_data_size=one_data_size;
+    send_packet_header->chap_proto.number_count=htonl(number_count);
+    send_packet_header->chap_proto.sequence = htonl(sequence);
     union num{
         int32_t int32;
         uint32_t uint32;
@@ -273,18 +325,27 @@ unsigned int ActionChapChallenge(const char *receive_packet_total,ClientSession*
         }
          * */
 
-        memcpy(&(packet_total[kHeaderSize + i * (1 << one_data_size)]), &tmpnum, 1 << one_data_size);
+        memcpy(&(send_packet_total[kHeaderSize + i * (1 << one_data_size)]), &tmpnum, 1 << one_data_size);
         answer += one_data_size==0 ? tmpnum.uint8:0;
         answer += one_data_size==1 ? ntohs(tmpnum.uint16):0;
         answer += one_data_size==2 ? ntohl(tmpnum.uint32):0;
     }
-    packet_header->chap_proto.data_length = htonl(number_count * (1 << one_data_size));
-    packet_header->chap_proto.timer_id_send = 0;
-    packet_header->chap_proto.timer_id_rcv = receive_packet_header->chap_proto.timer_id_send;
-    send(client->socket_fd, packet_total, kHeaderSize + ntohl(packet_header->chap_proto.data_length), 0);
+    send_packet_header->chap_proto.data_length = htonl(number_count * (1 << one_data_size));
+
+    send_packet_header->chap_proto.timer_id_tied = client->server_timer_id = client->server_timer_id % 255 + 1;
+    send_packet_header->chap_proto.timer_id_confirm = receive_packet_header->chap_proto.timer_id_tied;
+    auto* tmp_timer = new TimerRetranslationSession(5,send_packet_header->chap_proto.timer_id_tied,client->socket_fd,
+                                                    send_packet_total,kHeaderSize + ntohl(send_packet_header->chap_proto.data_length));
+    timer_list->push_back(tmp_timer);
+    TimerDisable(receive_packet_header->chap_proto.timer_id_confirm,client->socket_fd);
+
     ChapSession tmp_chap_session{.sequence=sequence,.answer=answer,.client = client};
     clock_gettime(CLOCK_MONOTONIC,&tmp_chap_session.tick);
     chap_list->insert(chap_iterator, tmp_chap_session);
+    if(!ErrorSimulator(kGenericErrorProb)){
+        send(client->socket_fd, send_packet_total, kHeaderSize + ntohl(send_packet_header->chap_proto.data_length), 0);
+    }
+
     return answer;
 }
 
@@ -307,15 +368,33 @@ unsigned int ActionChapJustice(const char* receive_packet_total, ClientSession* 
                         send_packet_header->chap_proto.chap_code=kChapSuccess;
                         strcpy(client->nickname,receive_packet_data->chap_response.userName);
                         send_packet_header->chap_proto.data_length = htonl(0);
-                        send(client->socket_fd, send_packet_total,
-                             kHeaderSize + ntohl(send_packet_header->chap_proto.data_length), 0);
+
+                        send_packet_header->chap_proto.timer_id_tied = client->server_timer_id = client->server_timer_id%255+1;
+                        send_packet_header->chap_proto.timer_id_confirm = receive_packet_header->chap_proto.timer_id_tied;
+                        auto* tmp_timer = new TimerRetranslationSession(5,send_packet_header->chap_proto.timer_id_tied,client->socket_fd,
+                                                                        send_packet_total,kHeaderSize + ntohl(send_packet_header->chap_proto.data_length));
+                        timer_list->push_back((tmp_timer));
+                        TimerDisable(receive_packet_header->chap_proto.timer_id_confirm,client->socket_fd);
+                        if(!ErrorSimulator(kGenericErrorProb)){
+                            send(client->socket_fd, send_packet_total,
+                                 kHeaderSize + ntohl(send_packet_header->chap_proto.data_length), 0);
+                        }
                         printf("\tCHAP_SUCCESS,\"%s\" login in socket_fd(%d)\n",client->nickname,client->socket_fd);
                         client->state=kOnline;
                     } else{
                         send_packet_header->chap_proto.chap_code=kChapFailure;
                         send_packet_header->chap_proto.data_length = htonl(0);
-                        send(client->socket_fd, send_packet_total,
-                             kHeaderSize + ntohl(send_packet_header->chap_proto.data_length), 0);
+
+                        send_packet_header->chap_proto.timer_id_tied = client->server_timer_id = client->server_timer_id%255+1;
+                        send_packet_header->chap_proto.timer_id_confirm = receive_packet_header->chap_proto.timer_id_tied;
+                        auto* tmp_timer = new TimerRetranslationSession(5,send_packet_header->chap_proto.timer_id_tied,client->socket_fd,
+                                                                        send_packet_total, kHeaderSize + ntohl(send_packet_header->chap_proto.data_length));
+                        timer_list->push_back((tmp_timer));
+                        TimerDisable(receive_packet_header->chap_proto.timer_id_confirm,client->socket_fd);
+                        if(!ErrorSimulator(kGenericErrorProb)){
+                            send(client->socket_fd, send_packet_total,
+                                 kHeaderSize + ntohl(send_packet_header->chap_proto.data_length), 0);
+                        }
                         printf("\tCHAP_FAILURE in socket_fd(%d)\n",client->socket_fd);
                         client->state=kOffline;
                     }
@@ -457,7 +536,8 @@ int ActionFileEndSend(const char* raw_packet, ClientSession* client){
 }
 
 //region TimerSession实现代码
-TimerSession::TimerSession(int timing_second,uint8_t the_timer_id):timer_id_(the_timer_id),timing_second_(timing_second),retry_count_(0),timer_state_(kTimerInit){
+TimerSession::TimerSession(int timing_second,uint8_t the_timer_id,SocketFileDescriptor socket_fd)
+        :timer_id_(the_timer_id),timing_second_(timing_second),socket_fd_(socket_fd),retry_count_(0),timer_state_(kTimerInit){
     clock_gettime(CLOCK_MONOTONIC,&init_tick_);
 }
 void TimerSession::set_timing_second(int timing_second) {
@@ -466,32 +546,39 @@ void TimerSession::set_timing_second(int timing_second) {
 int TimerSession::get_timing_second() const{
     return timing_second_;
 }
+void TimerSession::set_retry_max(int retry_max) {
+    retry_max_ = retry_max;
+}
 bool TimerSession::TimeoutJustice() const {
     timespec tmp_time{};
     clock_gettime(CLOCK_MONOTONIC,&tmp_time);
     time_t tmp = tmp_time.tv_sec - init_tick_.tv_sec;
-    printf("%ld ",tmp);
+#if SERVER_DEBUG_LEVEL >2
+    printf("(%d):%ld, ",timer_id_,tmp);
+#endif
     fflush(stdout);
     return (tmp) >timing_second_;
 }
 bool TimerSession::TimerUpdate() {
     retry_count_+=1;
-    if(retry_count_<5){
+    if(retry_count_<retry_max_){
         timing_second_*=2;
         clock_gettime(CLOCK_MONOTONIC,&init_tick_);
         return true;
     } else{
+        printf("过长时间没有回应(%d倍初始计时)，定时器%d自毁...\n",(1<<retry_max_)-1,timer_id_);
+        TimerDisable();
         return false;
     }
 }
 bool TimerSession::TimerTrigger(){
-    printf("debug:error:使用了父类的虚函数");
+    printf("Error:使用了父类的虚函数\n");
     return false;
 }
 bool TimerSession::TimerDisable() {
     if(timer_state_ == kTimerWorking){
         timer_state_ = kTimerDisable;
-        printf("定时器已关闭\n");
+//        printf("定时器%d已关闭\n",timer_id_);
         fflush(stdout);
         return true;
     }
@@ -503,8 +590,9 @@ State TimerSession::get_timer_state_(){
 }
 
 
-TimerRetranslationSession::TimerRetranslationSession(int timing_second,uint8_t timer_id, SocketFileDescriptor client_fd, const char *packet_cache,size_t packet_length):
-        TimerSession(timing_second,timer_id),client_fd_(client_fd),packet_length_(packet_length){
+TimerRetranslationSession::TimerRetranslationSession(int timing_second,uint8_t timer_id, SocketFileDescriptor client_fd,
+                                                     const char *packet_cache,size_t packet_length):
+        TimerSession(timing_second,timer_id,client_fd),client_fd_(client_fd),packet_length_(packet_length){
     memcpy(packet_cache_,packet_cache,packet_length);
     timer_state_ = kTimerWorking;
 }
@@ -512,11 +600,16 @@ bool TimerRetranslationSession::TimerTrigger() {
     if(timer_state_ == kTimerWorking) {
 //        TimerUpdate();
         if(!ErrorSimulator(kTimingErrorProb)){
-            printf("\ndebug:定时器重传成功\n");
-            return send(client_fd_, packet_cache_, packet_length_, 0) > 0;
+#if SERVER_DEBUG_LEVEL>2
+            printf("\ndebug:定时器(%d)重传成功\n",timer_id_);
+#endif
+            ssize_t x = send(client_fd_, packet_cache_, packet_length_, 0);
+            return  x > 0;
         }
         else{
-            printf("\ndebug:定时器重传但是出现了差错了\n");
+#if SERVER_DEBUG_LEVEL>2
+            printf("\ndebug:定时器(%d)重传但是出现了差错了\n",timer_id_);
+#endif
             return false;
         }
     }
@@ -524,8 +617,8 @@ bool TimerRetranslationSession::TimerTrigger() {
         return false;
 }
 
-TimerRemoveSession::TimerRemoveSession(int timing_second,uint8_t timer_id,bool(*function_point)()):
-        TimerSession(timing_second,timer_id),trigger_void_function_(function_point){
+TimerRemoveSession::TimerRemoveSession(int timing_second,uint8_t timer_id,SocketFileDescriptor socket_fd,bool(*function_point)()):
+        TimerSession(timing_second,timer_id,socket_fd),trigger_void_function_(function_point){
     timer_state_ = kTimerWorking;
 }
 bool TimerRemoveSession::TimerTrigger() {
@@ -537,10 +630,15 @@ bool TimerRemoveSession::TimerTrigger() {
 }
 //endregion
 
-bool TimerDisable(uint8_t timer_id){
+bool TimerDisable(uint8_t timer_id,SocketFileDescriptor socket_fd){
+    if(timer_id==0){
+        return false;//特判 因为经常用
+    }
     for(auto &iter :*timer_list){
         if(iter->timer_id_==timer_id){
-            return iter->TimerDisable();
+            if(iter->socket_fd_ == socket_fd){
+                return iter->TimerDisable();
+            }
         }
     }
     return false;

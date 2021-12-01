@@ -9,6 +9,9 @@
 
 //region 宏定义与枚举类型
 #define CLIENT_DEBUG_LEVEL 0
+//0: 没有debug信息
+//3：对定时器相关的信息进行展示
+//5: 增加进入到部分事件的内容
 //#define kDirLength 30 //请注意根据文件夹的名称更改此数字
 //#define CLIENT_DEBUG_LEVEL 0
 const int kDirLength = 30; //请注意根据文件夹的名称更改此数字
@@ -56,14 +59,17 @@ private:
     int retry_count_;
     timespec init_tick_{};
     int timing_second_;
+    int retry_max_=10;
 protected:
     State timer_state_;
 public:
     uint8_t timer_id_;
-    explicit TimerSession(int,uint8_t);
+    SocketFileDescriptor socket_fd_;
+    explicit TimerSession(int,uint8_t,SocketFileDescriptor);
     bool TimerUpdate();
     bool TimeoutJustice() const;
     void set_timing_second(int);
+    void set_retry_max(int);
     int get_timing_second() const;
     virtual bool TimerTrigger();
     bool TimerDisable();
@@ -84,7 +90,7 @@ class TimerRemoveSession:public TimerSession{
 private:
     bool (* trigger_void_function_)()= nullptr;
 public:
-    TimerRemoveSession(int,uint8_t ,bool(*)());
+    TimerRemoveSession(int,uint8_t ,SocketFileDescriptor,bool(*)());
     bool TimerTrigger() override;
 };
 
@@ -95,6 +101,11 @@ int EventNewGui();
 ssize_t EventGuiMessage(FdInfo *client);
 ssize_t EventServerMessage();
 int EventStdinMessage();
+
+int ActionGeneralFinishSend(const char *);
+int ActionGeneralFinishReceive(const char * );
+int ActionGeneralAckSend(const char *);
+int ActionGeneralAckReceive(const char *);
 
 void BaseActionInterrupt();
 int ActionSendMessageToServer(const char*);
@@ -114,7 +125,7 @@ int ActionFileEndReceived(const char*);
 
 bool ErrorSimulator(int);
 
-bool TimerDisable(uint8_t);
+bool TimerDisable(uint8_t,SocketFileDescriptor);
 //endregion
 
 extern int conn_client_fd,gui_server_fd;

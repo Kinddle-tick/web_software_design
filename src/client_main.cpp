@@ -86,7 +86,6 @@ int main(int argc, const char * argv[]){
     }
 
     /** endregion */
-
     while(select_flag)
     {
         //select多路复用
@@ -95,6 +94,7 @@ int main(int argc, const char * argv[]){
             cout << "(" << kStateDescription[self_data->state] << ") shell \033[35m" << self_data->confirmUserName << "\033[0m % ";
             cout.flush();
         }
+        cout.flush();
         int ret = select(max_fd + 1, client_fd_set, nullptr, nullptr, &ctl_time);
 
         if(ret > 0){
@@ -193,9 +193,10 @@ int main(int argc, const char * argv[]){
 
             for(auto timer_iter = timer_list->begin();timer_iter!=timer_list->end();){
                 if((*timer_iter)->get_timer_state_()==kTimerDisable){
-
+#if CLIENT_DEBUG_LEVEL>2
+                    printf("清理了一个定时器(%d)\n",(*timer_iter)->timer_id_);
+#endif
                     timer_iter = timer_list->erase(timer_iter);
-                    printf("清理了一个定时器");
                 }
                 else{
                     timer_iter++;

@@ -25,11 +25,15 @@
 const int kUsernameLength =30;
 const int kHeaderSize = 20;
 const int kBufferSize = 1004;
-const int kServerPort = 11290;
+const int kServerPort = 11294;
 const int kUserPathMaxLength = (512 - kUsernameLength - sizeof(unsigned int));
 
 const int kGenericErrorProb = 100; //debug--第一次发送必定出错，用定时器发送必定成功
 const int kTimingErrorProb = 0;
+const int kGenericAckProb = 20; //ack确认帧的丢包概率，这个万万不要超过一百。否则一次完整的会话将一直无法结束。
+
+const time_t kGenericRetryIntervalSecond = 1;//second
+const long kGenericRetryIntervalMicroSecond = 500;//usecond
 
 typedef int SocketFileDescriptor;
 typedef int FileDescriptor;
@@ -77,6 +81,8 @@ enum Protocol : char{
     kProtoMessage,
     kProtoChap,
     kProtoFile,
+    kProtoGeneralFinish,
+    kProtoGeneralAck,
 };
 
 //static 拒绝将此变量发送到连接器 避免出现重复定义
@@ -93,41 +99,40 @@ union header{
     struct {
         uint8_t proto;
         uint8_t detail_code;
-        uint8_t timer_id_send;
-        uint8_t timer_id_rcv;
+        uint8_t timer_id_tied;
+        uint8_t timer_id_confirm;
         uint32_t data_length;
         uint8_t zero[kHeaderSize - 8];
     }base_proto;
     struct {
         uint8_t proto=kProtoChap;
         uint8_t chap_code;
-        uint8_t timer_id_send;
-        uint8_t timer_id_rcv;
+        uint8_t timer_id_tied;
+        uint8_t timer_id_confirm;
         uint32_t data_length;
         uint32_t number_count;
         uint32_t sequence;
         uint8_t one_data_size;
-        uint8_t zero_code;
     }chap_proto;
     struct {
         uint8_t proto=kProtoMessage;
         uint8_t zero_code;
-        uint8_t timer_id_send;
-        uint8_t timer_id_rcv;
+        uint8_t timer_id_tied;
+        uint8_t timer_id_confirm;
         uint32_t data_length;
     }msg_proto;
     struct{
         uint8_t proto = kProtoControl;
         uint8_t ctl_code;
-        uint8_t timer_id_send;
-        uint8_t timer_id_rcv;
+        uint8_t timer_id_tied;
+        uint8_t timer_id_confirm;
         uint32_t data_length;
     }ctl_proto;
     struct{
         uint8_t proto = kProtoFile;
         uint8_t file_code;
-        uint8_t timer_id_send;
-        uint8_t timer_id_rcv;
+        uint8_t timer_id_tied;
+        uint8_t timer_id_confirm;
         uint32_t data_length;
         uint32_t frame_transport_length;
         uint32_t session_id;

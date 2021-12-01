@@ -111,7 +111,7 @@ int main(int argc,char **argv){
     //region fd_set的初始化操作等
     //fd_set  准备fd_set
     bool select_flag = true,stdin_flag= true;
-    struct timeval ctl_time{2700, 0};
+    struct timeval ctl_time{1, 0};
 //    logger_fd = open("server_logger",O_TRUNC|O_WRONLY|O_CREAT,S_IXUSR|S_IWUSR|S_IRUSR);
 //    logger_fptr = fdopen(logger_fd,"w");
     //add standard input
@@ -126,9 +126,11 @@ int main(int argc,char **argv){
 
     printf("Waiting for connection!\n");
     while(select_flag) {
+        cout.flush();
         int ret = select(max_fd + 1, &ser_fd_set, nullptr, nullptr, &ctl_time);
 
         if (ret > 0) {
+
             if (FD_ISSET(0, &ser_fd_set)) //<标准输入>是否存在于ser_fdset集合中（也就是说，检测到输入时，做如下事情）
             {
                 switch (EventReceiveStdin()) {
@@ -172,6 +174,7 @@ int main(int argc,char **argv){
                 }
             }
 
+
         }
 
             //deal with the message
@@ -181,11 +184,16 @@ int main(int argc,char **argv){
                 FD_SET(0,&ser_fd_set);
             }
             FD_SET(conn_server_fd, &ser_fd_set);
+            for(auto client_iterator:*client_list){
+                FD_SET(client_iterator.socket_fd,&ser_fd_set);
+            }
+
             for(auto timer_iter = timer_list->begin();timer_iter!=timer_list->end();){
                 if((*timer_iter)->get_timer_state_()==kTimerDisable){
-
+#if SERVER_DEBUG_LEVEL>2
+                    printf("清理了一个定时器(%d)\n",(*timer_iter)->timer_id_);
+#endif
                     timer_iter = timer_list->erase(timer_iter);
-                    printf("清理了一个定时器");
                 }
                 else{
                     timer_iter++;

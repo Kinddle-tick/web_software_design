@@ -7,6 +7,10 @@
 #include "my_generic_definition.h"
 #include <list>
 //region 宏定义
+#define SERVER_DEBUG_LEVEL 0
+//0: 没有debug信息
+//3：对定时器相关的信息进行展示
+
 //#define kBacklog 16
 //#define kDirLength 30 //请注意根据文件夹的名称更改此数字
 
@@ -17,10 +21,11 @@ const int  kDirLength = 30;//请注意根据文件夹的名称更改此数字
 //region 结构体声明
 struct ClientSession{
     SocketFileDescriptor socket_fd = 0;
-    UserNameString nickname = "";
-    char now_path[kUserPathMaxLength]={0};
+    uint8_t server_timer_id =0;
     State state = kOffline;
     timespec tick{};
+    UserNameString nickname = "";
+    char now_path[kUserPathMaxLength]={0};
 };
 struct UserInfo{
     UserNameString user_name;
@@ -47,14 +52,17 @@ private:
     int retry_count_;
     timespec init_tick_{};
     int timing_second_;
+    int retry_max_=10;
 protected:
     State timer_state_;
 public:
     uint8_t timer_id_;
-    explicit TimerSession(int,uint8_t);
+    SocketFileDescriptor socket_fd_;
+    explicit TimerSession(int,uint8_t,SocketFileDescriptor);
     bool TimerUpdate();
     bool TimeoutJustice() const;
     void set_timing_second(int);
+    void set_retry_max(int);
     int get_timing_second() const;
     virtual bool TimerTrigger();
     bool TimerDisable();
@@ -75,7 +83,7 @@ class TimerRemoveSession:public TimerSession{
 private:
     bool (* trigger_void_function_)()= nullptr;
 public:
-    TimerRemoveSession(int,uint8_t ,bool(*)());
+    TimerRemoveSession(int,uint8_t ,SocketFileDescriptor,bool(*)());
     bool TimerTrigger() override;
 };
 
@@ -85,6 +93,11 @@ public:
 int EventReceiveStdin();
 int EventNewClient();
 int EventClientMessage(ClientSession *client);
+
+int ActionGeneralFinishSend(const char *,ClientSession *);
+int ActionGeneralFinishReceive(const char *,ClientSession *);
+int ActionGeneralAckSend(const char *,ClientSession *);
+int ActionGeneralAckReceive(const char *,ClientSession *);
 
 unsigned int ActionControlUnregistered(const char *,ClientSession *);
 unsigned int ActionChapChallenge(const char *,ClientSession *);
@@ -101,6 +114,7 @@ ssize_t TimeoutActionRetransmission(const char * , ClientSession *);
 
 bool ErrorSimulator(int);
 
+bool TimerDisable(uint8_t,SocketFileDescriptor);
 //endregion
 
 extern int conn_server_fd;
