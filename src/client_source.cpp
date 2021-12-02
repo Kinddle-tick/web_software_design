@@ -838,6 +838,7 @@ int ActionFileTransportingReceived(const char* received_packet_total){
                 }
             }
             cout<<"找到对应的session,但是sequence不相同"<<endl;
+            return -2;
         }
     }
     cout<<"没有找到session和sequence均符合条件的会话;"<<endl;

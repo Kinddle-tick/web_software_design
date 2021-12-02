@@ -39,6 +39,7 @@ What things you need to install the software and how to install them.
    ```
 3. 可以通过修改my_generic_definition.h中的部分常量来达到自己想要的实验效果，当然要记得先编译。具体每个常量产生的作用在该文件注释中会有提到。
 4. 可以通过修改server_source.h和client_source.h中的DEBUG_LEVEL宏定义来观察更多的调试信息
+5. 如果出现关于htonll不存在的问题 全局替换成htobe64即可（同理ntohll换成be64toh)
 ## Resources
 
 Add links to external resources for this project, such as CI server, bug tracker, etc.

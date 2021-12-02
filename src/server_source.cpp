@@ -455,12 +455,12 @@ unsigned int ActionChapJustice(const char* receive_packet_total, ClientSession* 
                 }
             }
             printf("\tCHAP_ERROR:未搜寻到CHAP请求的用户名\n");
-            client->state=kOffline;
+//            client->state=kOffline;
             return 2;
         }
     }
     printf("\tCHAP_ERROR:未找到对应的CHAP_challenge记录\n");
-    client->state=kOffline;
+//    client->state=kOffline;
     return 1;
 }
 
@@ -474,6 +474,7 @@ int ActionFileRequestSend(const char*  receive_packet_total,ClientSession* clien
     send_packet_header->file_proto.file_code = kFileRequest;
     strcpy(send_packet_data->file_request.file_path, receive_packet_data->file_upload.file_path);
     clock_gettime(CLOCK_MONOTONIC,&send_packet_data->file_request.init_time);
+
     send_packet_data->file_request.init_time.tv_sec= htonll(send_packet_data->file_response.init_time.tv_sec);
     send_packet_data->file_request.init_time.tv_nsec = htonll(send_packet_data->file_response.init_time.tv_nsec);
 

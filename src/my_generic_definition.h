@@ -20,6 +20,7 @@
 #include <dirent.h>
 #include <cstdio>
 #include <cstdlib>
+//#include <endian.h>
 //#include <sys/time.h>
 
 const int kUsernameLength =30;  //最大用户名长度,不大于kBufferSzie
