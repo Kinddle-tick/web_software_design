@@ -7,7 +7,7 @@
 #include "my_generic_definition.h"
 #include <list>
 //region 宏定义
-#define SERVER_DEBUG_LEVEL 0
+#define SERVER_DEBUG_LEVEL 3
 //0: 没有debug信息
 //3：对定时器相关的信息进行展示
 
@@ -106,7 +106,7 @@ unsigned int ActionChapJustice(const char *, ClientSession *);
 int ActionControlLogin(const char*, ClientSession*);
 int ActionControlLsResponse(const char*, ClientSession*);
 int ActionFileResponse(const char*, ClientSession*);
-int ActionFileTranslating(FileSession*, ClientSession*);
+int ActionFileTranslating(const char* ,FileSession*, ClientSession*);
 int ActionFileAckReceived(const char*, ClientSession*);
 int ActionFileEndSend(const char*, ClientSession*);
 int ActionMessageProcessing(const char *, ClientSession *);

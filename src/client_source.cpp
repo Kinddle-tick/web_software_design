@@ -328,7 +328,7 @@ int EventStdinMessage(){
     }
     else if (!strcmp(para[0],"monitor")){
         ActionControlMonitor();
-        return kNormal;
+//        return kNormal;
     }
     else{
         cout<<"Invalid command:,'"<<para[0]<<R"('try to use 'help')"<<endl;
@@ -562,15 +562,23 @@ int ActionControlMonitor(){
 
 int ActionFileRequestSend(const char* file_path){
     if(self_data->state == kOnline){
-        char packet_total[kHeaderSize + kBufferSize]={0};
-        auto* packet_header = (header*)packet_total;
-        auto* packet_data = (data*)(packet_total + kHeaderSize);
-        packet_header->proto=kProtoFile;
-        packet_header->file_proto.file_code = kFileRequest;
+        char send_packet_total[kHeaderSize + kBufferSize]={0};
+        auto* send_packet_header = (header*)send_packet_total;
+        auto* send_packet_data = (data*)(send_packet_total + kHeaderSize);
+        send_packet_header->proto=kProtoFile;
+        send_packet_header->file_proto.file_code = kFileRequest;
+        strcpy(send_packet_data->file_request.file_path, file_path);
+        send_packet_header->file_proto.data_length = htonl(strlen(file_path) + sizeof(send_packet_data->file_request.init_time));
 
-        strcpy(packet_data->file_request.file_path,file_path);
-        packet_header->file_proto.data_length = htonl(strlen(file_path)+sizeof(packet_data->file_request.init_time));
-        send(conn_client_fd, packet_total, kHeaderSize + ntohl(packet_header->file_proto.data_length), 0);
+        send_packet_header->file_proto.timer_id_tied = client_timer_id=client_timer_id%255+1;
+        send_packet_header->file_proto.timer_id_confirm =0;
+        auto* tmp_timer = new TimerRetranslationSession(kGenericTimeInterval,send_packet_header->file_proto.timer_id_tied,conn_client_fd,
+                                                       send_packet_total,kHeaderSize+ntohl(send_packet_header->file_proto.data_length));
+        timer_list->push_back(tmp_timer);
+        TimerDisable(0,conn_client_fd);
+        if(!ErrorSimulator(kGenericErrorProb)){
+            send(conn_client_fd, send_packet_total, kHeaderSize + ntohl(send_packet_header->file_proto.data_length), 0);
+        }
         return 0;
     }
     else{
@@ -602,17 +610,18 @@ int ActionFileResponseReceived(const char * received_packet_total){
         FileSession tmp_session{.session_id=ntohl(received_packet_header->file_proto.session_id),
                 .sequence = ntohl(received_packet_header->file_proto.sequence),
                 .file_fd = tmp_fd,
-                .init_time = ntohl(received_packet_data->file_response.init_time),
+                .init_time{},
+//                .init_time = ntohl(received_packet_data->file_response.init_time),
                 .init_sequence = ntohl(received_packet_header->file_proto.sequence)};
+        tmp_session.init_time.tv_sec = ntohl(received_packet_data->file_response.init_time);
         file_list->push_back(tmp_session);
-        ActionFileAckSend(tmp_session.session_id, tmp_session.sequence);
+        ActionFileAckSend(received_packet_total);
         cout<<"已准备好接受文件传输"<<endl;
         return 0;
     }
     else{
         cout<<"需要在线才能进行文件传输"<<endl;
-        ActionFileErrorSend(ntohl(received_packet_header->file_proto.session_id),
-                            ntohl(received_packet_header->file_proto.sequence));
+        ActionFileErrorSend(received_packet_total);
         return -1;
     }
 }
@@ -630,13 +639,11 @@ int ActionFileTransportingReceived(const char* received_packet_total){
 //                    printf("%ld",clock()-file_ss_iter.init_time);
 //                    fprintf(logger_fptr,"fd:%ld完成了一轮确收",clock()-file_ss_iter.init_time);
 //                    cout<<"session:"<<ntohl(received_packet_header->file_proto.session_id)<<" 完成了一次确收"<<endl;
-                    ActionFileAckSend(file_ss_iter.session_id,
-                                      file_ss_iter.sequence);
+                    ActionFileAckSend(received_packet_total,size);
                     return 0;
                 }
                 else{
-                    ActionFileErrorSend(file_ss_iter.session_id,
-                                        file_ss_iter.sequence);
+                    ActionFileErrorSend(received_packet_total);
                     return -1;
                 }
             }
@@ -647,22 +654,50 @@ int ActionFileTransportingReceived(const char* received_packet_total){
     return -1;
 }
 
-int ActionFileAckSend(uint32_t session_id= 0, uint32_t sequence= 0){
-    header send_packet_header{.file_proto{.file_code=kFileAck,.frame_transport_length=htonl(0),
-                                          .session_id=htonl(session_id),.sequence=htonl(sequence)}};
-    send_packet_header.file_proto.data_length = htonl(0);
-    send(conn_client_fd,&send_packet_header + ntohl(send_packet_header.file_proto.data_length), kHeaderSize, 0);
+int ActionFileAckSend(const char* receive_packet_total,ssize_t sequence_offset){
+    auto * receive_packet_header = (header*)receive_packet_total;
+    header send_packet_header{.file_proto{.file_code=kFileAck,
+                                          .timer_id_tied = client_timer_id = client_timer_id%255+1,
+                                          .timer_id_confirm = receive_packet_header->file_proto.timer_id_tied,
+                                          .data_length = htonl(0),
+                                          .frame_transport_length=htonl(0),
+                                          .session_id=receive_packet_header->file_proto.session_id,
+                                          .sequence=htonl(ntohl(receive_packet_header->file_proto.sequence)+sequence_offset)}};
+//    send_packet_header.file_proto.data_length = htonl(0);
+    auto *tmp_timer = new TimerRetranslationSession(kGenericTimeInterval,send_packet_header.file_proto.timer_id_tied,conn_client_fd,
+                                                    (char*)&send_packet_header,kHeaderSize + ntohl(send_packet_header.file_proto.data_length));
+    timer_list->push_back(tmp_timer);
+    TimerDisable(receive_packet_header->file_proto.timer_id_confirm,conn_client_fd);
+    if(!ErrorSimulator(kGenericErrorProb)){
+        send(conn_client_fd,&send_packet_header, kHeaderSize + ntohl(send_packet_header.file_proto.data_length), 0);
+    }
     return 0;
 }
 
-int ActionFileErrorSend(uint32_t session_id=0,uint32_t sequence_id=0){
-    cout<<"fileErrorSend"<<endl;
+int ActionFileErrorSend(const char* receive_packet_total){
+    auto * receive_packet_header = (header*)receive_packet_total;
+    header send_packet_header{.file_proto{.file_code=kFileError,
+            .timer_id_tied = client_timer_id = client_timer_id%255+1,
+            .timer_id_confirm = receive_packet_header->file_proto.timer_id_tied,
+            .data_length = htonl(0),
+            .frame_transport_length=htonl(0),
+            .session_id=receive_packet_header->file_proto.session_id,
+            .sequence=htonl(ntohl(receive_packet_header->file_proto.sequence))}};
+//    send_packet_header.file_proto.data_length = htonl(0);
+    auto *tmp_timer = new TimerRetranslationSession(kGenericTimeInterval,send_packet_header.file_proto.timer_id_tied,conn_client_fd,
+                                                    (char*)&send_packet_header,kHeaderSize + ntohl(send_packet_header.file_proto.data_length));
+    timer_list->push_back(tmp_timer);
+    TimerDisable(receive_packet_header->file_proto.timer_id_confirm,conn_client_fd);
+    if(!ErrorSimulator(kGenericErrorProb)){
+        send(conn_client_fd,&send_packet_header, kHeaderSize + ntohl(send_packet_header.file_proto.data_length), 0);
+    }
     return 0;
 }
 
 int ActionFileEndReceived(const char* received_packet_total){
     auto* received_packet_header = (header*)received_packet_total;
     cout<<"一个文件接受完了"<<endl;
+    ActionGeneralFinishSend(received_packet_total);
     for(auto file_ss_iter = file_list->begin(); file_ss_iter!=file_list->end();++file_ss_iter){
         if(file_ss_iter->session_id == ntohl(received_packet_header->file_proto.session_id)){
             close(file_ss_iter->file_fd);

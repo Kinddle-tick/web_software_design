@@ -121,8 +121,8 @@ int ActionControlMonitor();
 int ActionFileRequestSend(const char*);
 int ActionFileResponseReceived(const char * );
 int ActionFileTransportingReceived(const char*);
-int ActionFileAckSend(uint32_t, uint32_t);
-int ActionFileErrorSend(uint32_t, uint32_t);
+int ActionFileAckSend(const char*,ssize_t=0);
+int ActionFileErrorSend(const char*);
 int ActionFileEndReceived(const char*);
 
 bool ErrorSimulator(int);
