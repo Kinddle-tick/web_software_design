@@ -25,11 +25,11 @@
 const int kUsernameLength =30;  //最大用户名长度,不大于kBufferSzie
 const int kHeaderSize = 20;     //每个包的头部长度，不小于20
 const int kBufferSize = 1004;   //每个包数据部分的长度，不小于kUsername
-const int kServerPort = 11294;  //服务器的端口号
+const int kServerPort = 11295;  //服务器的端口号
 const int kUserPathMaxLength = (512 - kUsernameLength - sizeof(unsigned int));
                                 //用户发送路径的最大长度，自适应
-const int kGenericErrorProb = 100;  //除了ack以外的报文，第一次发送时丢包的概率
-const int kTimingErrorProb = 0;     //计时器重传时丢包的概率
+const int kGenericErrorProb = 20;  //除了ack以外的报文，第一次发送时丢包的概率
+const int kTimingErrorProb = 20;     //计时器重传时丢包的概率
 const int kGenericAckProb = 20;     //ack报文的丢包概率，这个一般不要超过一百。否则一次完整的会话将难以结束，但不代表不可以试试，因为做过相关的预防了。
                                     //（指ack报文没有超时重传机制，仅由Fin报文触发，fin报文只重传三次）
 /*几种组合:
@@ -64,7 +64,8 @@ enum State : char {
     kControlCd,
     kControlUnregistered,
 
-    kFileRequest,
+    kFileUpload,
+    kFileRequest,//与download合并
     kFileResponse,
     kFileInit,
     kFileTransporting,
@@ -157,17 +158,24 @@ union data{
     struct {
         char chr[kBufferSize];
     }ctl_ls;
+    struct{
+        timespec init_time; // 但一般这里不会有初始化 只是看着后面三个规整一点可能比较好（
+        char file_path[kBufferSize - sizeof(timespec)];
+    }file_upload;
     struct {
-        time_t init_time;
-        char file_path[kBufferSize - sizeof(time_t)];
+        timespec init_time;
+        char file_path[kBufferSize - sizeof(timespec)];
     }file_request;
     struct {
-        time_t init_time;
-        char file_path[kBufferSize - sizeof(time_t)];
+        timespec init_time;
+        char file_path[kBufferSize - sizeof(timespec)];
     }file_response;
     struct {
         uint32_t CRC_32;
         char file_data[kBufferSize - sizeof(uint32_t)];//未来可能加入CRC
     }file_transport;
+    struct {
+        timespec end_time;
+    }file_end;
 };
 #endif //WEB_SOFTWARE_DESIGN_COURSE_DESIGN_MY_GENERIC_DEFINITION_H

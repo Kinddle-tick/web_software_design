@@ -30,6 +30,7 @@ struct FileSession{
     uint32_t session_id;
     uint32_t sequence;
     FileDescriptor file_fd;
+    State state;
     timespec init_time;
     uint32_t init_sequence;
 };
@@ -118,11 +119,16 @@ int ActionConnectToServer();
 int ActionControlLogin();
 int ActionControlLs();
 int ActionControlMonitor();
+int ActionFileUpload(const char*);
 int ActionFileRequestSend(const char*);
+int ActionFileResponseSend(const char*);
 int ActionFileResponseReceived(const char * );
+int ActionFileTranslatingSend(const char *, FileSession *);
 int ActionFileTransportingReceived(const char*);
 int ActionFileAckSend(const char*,ssize_t=0);
+int ActionFileAckReceived(const char*);
 int ActionFileErrorSend(const char*);
+int ActionFileEndSend(const char*);
 int ActionFileEndReceived(const char*);
 
 bool ErrorSimulator(int);

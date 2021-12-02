@@ -102,13 +102,26 @@ int EventClientMessage(ClientSession* client){
                 return kProtoChap;
             case kProtoFile:
                 switch (receive_packet_header->file_proto.file_code) {
+                    case kFileUpload:
+                        ActionFileRequestSend(receive_message,client);
+                        break;
                     case kFileRequest:
-                        ActionFileResponse(receive_message,client);
+                        ActionFileResponseSend(receive_message, client);
+                        break;
+                    case kFileResponse:
+                        ActionFileResponseReceive(receive_message,client);
+                        break;
+                    case kFileTransporting:
+                        ActionFileTransportingReceived(receive_message,client);
                         break;
                     case kFileAck:
                         ActionFileAckReceived(receive_message,client);
                         break;
+                    case kFileEnd:
+                        ActionFileEndReceived(receive_message,client);
+                        break;
                     default:
+                        cout<<"无效的file_code";
                         break;
                 }
                 return kProtoFile;
@@ -451,7 +464,36 @@ unsigned int ActionChapJustice(const char* receive_packet_total, ClientSession* 
     return 1;
 }
 
-int ActionFileResponse(const char* receive_packet_total, ClientSession* client){
+int ActionFileRequestSend(const char*  receive_packet_total,ClientSession* client){
+    auto* receive_packet_header = (header*) receive_packet_total;
+    auto* receive_packet_data = (data*) (receive_packet_total+kHeaderSize);
+    char send_packet_total[kHeaderSize + kBufferSize]={0};
+    auto* send_packet_header = (header*)send_packet_total;
+    auto* send_packet_data = (data*)(send_packet_total + kHeaderSize);
+    send_packet_header->proto=kProtoFile;
+    send_packet_header->file_proto.file_code = kFileRequest;
+    strcpy(send_packet_data->file_request.file_path, receive_packet_data->file_upload.file_path);
+    clock_gettime(CLOCK_MONOTONIC,&send_packet_data->file_request.init_time);
+    send_packet_data->file_request.init_time.tv_sec= htonll(send_packet_data->file_response.init_time.tv_sec);
+    send_packet_data->file_request.init_time.tv_nsec = htonll(send_packet_data->file_response.init_time.tv_nsec);
+
+    send_packet_header->file_proto.data_length = htonl(strlen(receive_packet_data->file_upload.file_path)
+            + sizeof(send_packet_data->file_request.init_time));
+    send_packet_header->file_proto.session_id = htonl(session_id++);
+    srandom(time(nullptr)*121);
+    send_packet_header->file_proto.sequence = htonl(random());
+    send_packet_header->file_proto.timer_id_tied = client->server_timer_id=client->server_timer_id%255+1;
+    send_packet_header->file_proto.timer_id_confirm =receive_packet_header->file_proto.timer_id_tied;
+    auto* tmp_timer = new TimerRetranslationSession(kGenericTimeInterval,send_packet_header->file_proto.timer_id_tied,client->socket_fd,
+                                                    send_packet_total,kHeaderSize+ntohl(send_packet_header->file_proto.data_length));
+    timer_list->push_back(tmp_timer);
+    TimerDisable(receive_packet_header->file_proto.timer_id_confirm,client->socket_fd);;
+    if(!ErrorSimulator(kGenericErrorProb)){
+        send(client->socket_fd, send_packet_total, kHeaderSize + ntohl(send_packet_header->file_proto.data_length), 0);
+    }
+    return 0;
+}
+int ActionFileResponseSend(const char* receive_packet_total, ClientSession* client){
     auto* receive_packet_header = (header *)(receive_packet_total);
     auto* receive_packet_data = (data *)(receive_packet_total + kHeaderSize);
     cout<<"请求文件名:"<<receive_packet_data->file_request.file_path<<endl;
@@ -474,18 +516,20 @@ int ActionFileResponse(const char* receive_packet_total, ClientSession* client){
         auto* send_packet_header = (header*)send_packet_total;
         auto* send_packet_data = (data*)(send_packet_total + kHeaderSize);
         tmp_session.state = kFileInit;
-//        tmp_session.tick = clock();
-        clock_gettime(CLOCK_MONOTONIC,&tmp_session.tick);
+        clock_gettime(CLOCK_MONOTONIC,&tmp_session.init_time);
         tmp_session.file_fd = fd_tmp;
-        tmp_session.file_ptr = fdopen(fd_tmp,"rb");
-        srand(clock());
+//        tmp_session.file_ptr = fdopen(fd_tmp,"rb");
+        srand(time(nullptr)*133);
         tmp_session.sequence = random();
         tmp_session.session_id = session_id++;
         send_packet_header->file_proto.sequence = htonl(tmp_session.sequence);
         send_packet_header->file_proto.session_id =  htonl(tmp_session.session_id);
         file_list->push_back(tmp_session);
         strcpy(send_packet_data->file_response.file_path,receive_packet_data->file_request.file_path);
-        send_packet_data->file_response.init_time = htonl(tmp_session.tick.tv_sec);
+//        send_packet_data->file_response.init_time = htonl(tmp_session);
+        send_packet_data->file_response.init_time.tv_sec= htonll(tmp_session.init_time.tv_sec);
+        send_packet_data->file_response.init_time.tv_nsec = htonll(tmp_session.init_time.tv_nsec);
+
         send_packet_header->proto = kProtoFile;
         send_packet_header->file_proto.file_code=kFileResponse;
         send_packet_header->file_proto.data_length =  htonl(strlen(send_packet_data->file_response.file_path)
@@ -509,7 +553,61 @@ int ActionFileResponse(const char* receive_packet_total, ClientSession* client){
     }
 }
 
-int ActionFileTranslating(const char* receive_packet_total,FileSession* file_ss , ClientSession* client){
+int ActionFileResponseReceive(const char* received_packet_total,ClientSession* client){
+    auto* received_packet_header = (header *)received_packet_total;
+    auto* received_packet_data = (data *)(received_packet_total + kHeaderSize);
+    char request_path[kUserPathMaxLength]={0};
+    strcpy(request_path,client->now_path);
+    if(access(request_path,W_OK)!=0){
+        cout<<request_path<<" --目录不存在，将会被创建"<<endl;
+        mkdir(request_path,S_IRWXU);
+    }
+    strcat(request_path,"/");
+    strcat(request_path,received_packet_data->file_response.file_path);
+    if(access(request_path,W_OK|R_OK)==0){
+        cout<<request_path<<"文件已存在"<<endl;
+        int last_point_loc= (int)strlen(request_path)+1;
+        for(int i = 0;request_path[i]!=0;i++){
+            if(request_path[i]=='.'){
+                last_point_loc = i;
+            }
+        }
+        char copy_request_path[kUserPathMaxLength]={0};
+        strcpy(copy_request_path,request_path);
+        copy_request_path[last_point_loc]=0;
+        char tmp_request_path[kUserPathMaxLength]={0};
+        int code = 1;
+        do {
+            sprintf(tmp_request_path,"%s[%d].%s",copy_request_path,code++,copy_request_path+last_point_loc+1);
+        } while (access(tmp_request_path,W_OK|R_OK)==0);
+        if(code >=100){
+            cout<<request_path<<"相同文件过多，取消传输"<<endl;
+            ActionGeneralFinishSend(received_packet_total,client);
+            return -1;
+        }
+        cout<<request_path<<"更名为"<<tmp_request_path<<endl;
+        strcpy(request_path,tmp_request_path);
+    }
+
+    int tmp_fd = open(request_path,O_WRONLY|O_TRUNC|O_CREAT,S_IRUSR|S_IWUSR|S_IXUSR);
+    if(tmp_fd<0){
+        perror("文件打开失败");
+        return -1;
+    }
+    FileSession tmp_session{.session_id=ntohl(received_packet_header->file_proto.session_id),
+            .sequence = ntohl(received_packet_header->file_proto.sequence),
+            .file_fd = tmp_fd,
+            .init_time{},
+//                .init_time = ntohl(received_packet_data->file_response.init_time),
+            .init_sequence = ntohl(received_packet_header->file_proto.sequence)};
+    tmp_session.init_time.tv_sec = ntohll(received_packet_data->file_response.init_time.tv_sec);
+    tmp_session.init_time.tv_nsec = ntohll(received_packet_data->file_response.init_time.tv_nsec);
+    file_list->push_back(tmp_session);
+    ActionFileAckSend(received_packet_total,client);
+    cout<<"服务端已准备好接受文件传输"<<endl;
+    return 0;
+}
+int ActionFileTranslatingSend(const char* receive_packet_total, FileSession* file_ss , ClientSession* client){
     auto* receive_packet_header = (header*)receive_packet_total;
     char send_packet_total[kHeaderSize + kBufferSize]={0};
     auto* send_packet_header = (header*)send_packet_total;
@@ -532,10 +630,12 @@ int ActionFileTranslating(const char* receive_packet_total,FileSession* file_ss 
         TimerDisable(receive_packet_header->file_proto.timer_id_confirm,client->socket_fd);
         ActionFileEndSend(send_packet_total,client);
         return 0;
-    }else if(ntohl(send_packet_header->file_proto.frame_transport_length) < 0){
+    }
+    else if(ntohl(send_packet_header->file_proto.frame_transport_length) < 0){
         cout<<"文件读取失败"<<endl;
         return -1;
-    }else{
+    }
+    else{
         send_packet_header->file_proto.data_length = htonl(sizeof(send_packet_data->file_transport.CRC_32)
                                                      +ntohl(send_packet_header->file_proto.frame_transport_length));
         send_packet_header->file_proto.timer_id_tied = client->server_timer_id =client->server_timer_id%255+1;
@@ -548,23 +648,70 @@ int ActionFileTranslating(const char* receive_packet_total,FileSession* file_ss 
             send(client->socket_fd, send_packet_total,
                  kHeaderSize + ntohl(send_packet_header->file_proto.data_length) , 0);
         }
-//        fprintf(logger_fptr,"fd:%ld完成了一轮发送",clock()-file_ss->tick);
+//        fprintf(logger_fptr,"fd:%ld完成了一轮发送",clock()-file_ss->init_time);
         return 0;
     }
 }
 
+int ActionFileTransportingReceived(const char* received_packet_total,ClientSession* client){
+    auto* received_packet_header = (header*)received_packet_total;
+    auto* received_packet_data = (data*)(received_packet_total + kHeaderSize);
+    for(auto &file_ss_iter :*file_list){
+        if (file_ss_iter.session_id==ntohl(received_packet_header->file_proto.session_id)){
+            if(file_ss_iter.sequence == ntohl(received_packet_header->file_proto.sequence)){
+                ssize_t size = write(file_ss_iter.file_fd,received_packet_data->file_transport.file_data,
+                                     ntohl(received_packet_header->file_proto.frame_transport_length));
+                if(size >0){
+                    file_ss_iter.sequence+=size;
+//                    printf("%ld",clock()-file_ss_iter.init_time);
+//                    fprintf(logger_fptr,"fd:%ld完成了一轮确收",clock()-file_ss_iter.init_time);
+//                    cout<<"session:"<<ntohl(received_packet_header->file_proto.session_id)<<" 完成了一次确收"<<endl;
+                    ActionFileAckSend(received_packet_total,client,size);
+                    return 0;
+                }
+                else{
+                    ActionFileErrorSend(received_packet_total,client);
+                    return -1;
+                }
+            }
+            cout<<"找到对应的session,但是sequence不相同"<<endl;
+        }
+    }
+    cout<<"没有找到session和sequence均符合条件的会话;"<<endl;
+    return -1;
+}
+
+int ActionFileAckSend(const char* receive_packet_total, ClientSession* client, ssize_t sequence_offset){
+    auto * receive_packet_header = (header*)receive_packet_total;
+    header send_packet_header{.file_proto{.file_code=kFileAck,
+            .timer_id_tied = client->server_timer_id = client->server_timer_id%255+1,
+            .timer_id_confirm = receive_packet_header->file_proto.timer_id_tied,
+            .data_length = htonl(0),
+            .frame_transport_length=htonl(0),
+            .session_id=receive_packet_header->file_proto.session_id,
+            .sequence=htonl(ntohl(receive_packet_header->file_proto.sequence)+sequence_offset)}};
+//    send_packet_header.file_proto.data_length = htonl(0);
+    auto *tmp_timer = new TimerRetranslationSession(kGenericTimeInterval,send_packet_header.file_proto.timer_id_tied,client->socket_fd,
+                                                    (char*)&send_packet_header,kHeaderSize + ntohl(send_packet_header.file_proto.data_length));
+    timer_list->push_back(tmp_timer);
+    TimerDisable(receive_packet_header->file_proto.timer_id_confirm,client->socket_fd);
+    if(!ErrorSimulator(kGenericErrorProb)){
+        send(client->socket_fd,&send_packet_header, kHeaderSize + ntohl(send_packet_header.file_proto.data_length), 0);
+    }
+    return 0;
+}
 int ActionFileAckReceived(const char* received_packet_total, ClientSession* client){
     auto* received_packet_header = (header*)received_packet_total;
     for(auto &file_ss_iter:*file_list){
         if(file_ss_iter.session_id == ntohl(received_packet_header->file_proto.session_id)){
             if(file_ss_iter.sequence == ntohl(received_packet_header->file_proto.sequence)){
                 if(file_ss_iter.state == kFileInit){
-                    cout<<"client "<<client->nickname<<"准备好接受文件传输！"<<endl;
-                    ActionFileTranslating(received_packet_total,&file_ss_iter,client);
+                    cout<<"client "<<client->nickname<<"准备好进行文件传输！"<<endl;
+                    ActionFileTranslatingSend(received_packet_total, &file_ss_iter, client);
                     return 0;
                 }
                 if(file_ss_iter.state == kFileTransporting){
-                    ActionFileTranslating(received_packet_total,&file_ss_iter,client);
+                    ActionFileTranslatingSend(received_packet_total, &file_ss_iter, client);
                     return 0;
                 }
             }
@@ -574,11 +721,35 @@ int ActionFileAckReceived(const char* received_packet_total, ClientSession* clie
     return -1;
 }
 
-int ActionFileEndSend(const char* raw_packet, ClientSession* client){
+int ActionFileErrorSend(const char* receive_packet_total,ClientSession* client){
+    auto * receive_packet_header = (header*)receive_packet_total;
+    header send_packet_header{.file_proto{.file_code=kFileError,
+            .timer_id_tied = client->server_timer_id = client->server_timer_id%255+1,
+            .timer_id_confirm = receive_packet_header->file_proto.timer_id_tied,
+            .data_length = htonl(0),
+            .frame_transport_length=htonl(0),
+            .session_id=receive_packet_header->file_proto.session_id,
+            .sequence=htonl(ntohl(receive_packet_header->file_proto.sequence))}};
+//    send_packet_header.file_proto.data_length = htonl(0);
+    auto *tmp_timer = new TimerRetranslationSession(kGenericTimeInterval,send_packet_header.file_proto.timer_id_tied,client->socket_fd,
+                                                    (char*)&send_packet_header,kHeaderSize + ntohl(send_packet_header.file_proto.data_length));
+    timer_list->push_back(tmp_timer);
+    TimerDisable(receive_packet_header->file_proto.timer_id_confirm,client->socket_fd);
+    if(!ErrorSimulator(kGenericErrorProb)){
+        send(client->socket_fd,&send_packet_header, kHeaderSize + ntohl(send_packet_header.file_proto.data_length), 0);
+    }
+    return 0;
+}
 
+int ActionFileEndSend(const char* raw_packet, ClientSession* client){
     auto * send_packet_header = (header*)raw_packet;
+    auto * send_packet_data = (data*)(raw_packet+kHeaderSize);
     send_packet_header->file_proto.file_code = kFileEnd;
-    send_packet_header->file_proto.data_length = htonl(0);
+    clock_gettime(CLOCK_MONOTONIC,&send_packet_data->file_end.end_time);
+    send_packet_data->file_end.end_time.tv_sec = htonll(send_packet_data->file_end.end_time.tv_sec);
+    send_packet_data->file_end.end_time.tv_nsec = htonll(send_packet_data->file_end.end_time.tv_nsec);
+    send_packet_header->file_proto.data_length = htonl(sizeof(send_packet_data->file_end));
+
     auto * tmp_timer = new TimerRetranslationSession(kGenericTimeInterval,send_packet_header->file_proto.timer_id_tied,client->socket_fd,
                                                      (char*)send_packet_header,kHeaderSize + ntohl(send_packet_header->file_proto.data_length));
     timer_list->push_back(tmp_timer);
@@ -598,6 +769,34 @@ int ActionFileEndSend(const char* raw_packet, ClientSession* client){
     cout<<"没有在列表里找到相应的文件"<<endl;
     return -1;
 }
+
+int ActionFileEndReceived(const char* received_packet_total,ClientSession* client){
+    auto* received_packet_header = (header*)received_packet_total;
+    auto* received_packet_data = (data*)(received_packet_total+kHeaderSize);
+//    ActionGeneralFinishSend(received_packet_total,client);
+    for(auto&file_ss_iter:*file_list){
+        if(file_ss_iter.session_id == ntohl(received_packet_header->file_proto.session_id)){
+            if(file_ss_iter.sequence == ntohl(received_packet_header->file_proto.sequence)){
+                char send_packet_total[kHeaderSize+kBufferSize]={0};
+                auto* send_packet_header = (header*)send_packet_total;
+                auto* send_packet_data = (data*)(send_packet_total + kHeaderSize);
+                send_packet_header->proto=kProtoFile;
+                send_packet_header->file_proto.file_code= kFileEnd;
+                send_packet_header->file_proto.session_id = htonl(file_ss_iter.session_id);
+                send_packet_header->file_proto.sequence = htonl(file_ss_iter.sequence);
+                file_ss_iter.state = kFileEnd;
+                send_packet_header->file_proto.timer_id_tied = client->server_timer_id=client->server_timer_id%255+1;
+                send_packet_header->file_proto.timer_id_confirm = received_packet_header->file_proto.timer_id_tied;
+                TimerDisable(received_packet_header->file_proto.timer_id_confirm,client->socket_fd);
+                ActionFileEndSend(send_packet_total,client);
+                return 0;
+            }
+        }
+    }
+    cout<<"找不到需要终止的文件传输链接..."<<endl;
+    return -1;
+}
+
 
 //region TimerSession实现代码
 TimerSession::TimerSession(double_t time_interval, uint8_t the_timer_id, SocketFileDescriptor socket_fd)

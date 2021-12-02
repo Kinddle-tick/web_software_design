@@ -7,7 +7,7 @@
 #include "my_generic_definition.h"
 #include <list>
 //region 宏定义
-#define SERVER_DEBUG_LEVEL 3
+#define SERVER_DEBUG_LEVEL 0
 //0: 没有debug信息
 //3：对定时器相关的信息进行展示
 
@@ -42,9 +42,9 @@ struct FileSession{
     uint32_t session_id;
     uint32_t sequence;
     FileDescriptor file_fd;
-    FILE * file_ptr;
     State state;
-    timespec tick;
+    timespec init_time;
+    uint32_t init_sequence;
 };
 
 class TimerSession{
@@ -100,15 +100,24 @@ int ActionGeneralFinishReceive(const char *,ClientSession *);
 int ActionGeneralAckSend(const char *,ClientSession *);
 int ActionGeneralAckReceive(const char *,ClientSession *);
 
-unsigned int ActionControlUnregistered(const char *,ClientSession *);
 unsigned int ActionChapChallenge(const char *,ClientSession *);
 unsigned int ActionChapJustice(const char *, ClientSession *);
+
+unsigned int ActionControlUnregistered(const char *,ClientSession *);
 int ActionControlLogin(const char*, ClientSession*);
 int ActionControlLsResponse(const char*, ClientSession*);
-int ActionFileResponse(const char*, ClientSession*);
-int ActionFileTranslating(const char* ,FileSession*, ClientSession*);
+
+int ActionFileRequestSend(const char*,ClientSession*);
+int ActionFileResponseSend(const char*, ClientSession*);
+int ActionFileResponseReceive(const char*,ClientSession*);
+int ActionFileTranslatingSend(const char *, FileSession *, ClientSession *);
+int ActionFileTransportingReceived(const char*,ClientSession*);
+int ActionFileAckSend(const char*, ClientSession*,ssize_t =0);
 int ActionFileAckReceived(const char*, ClientSession*);
+int ActionFileErrorSend(const char*, ClientSession*);
 int ActionFileEndSend(const char*, ClientSession*);
+int ActionFileEndReceived(const char*, ClientSession*);
+
 int ActionMessageProcessing(const char *, ClientSession *);
 
 ssize_t TimeoutActionRetransmission(const char * , ClientSession *);
