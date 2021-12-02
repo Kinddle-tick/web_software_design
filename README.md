@@ -24,23 +24,21 @@ What things you need to install the software and how to install them.
 ```
 
 ## Deployment
-（项目二，双人聊天程序）
-1. 启动S_server 当其出现`wait for client connect!`的字样时进行步骤2
-2. 运行client_GUI.py脚本**两次**，可以选择传入参数或者无参数启动（无参数启动时会有关于参数的使用例）
-3. 分别单击两个聊天窗口的"客户端信息"按钮，确定当前聊天窗口准备连接的客户端地址，并确定该地址可用 *_(主要是要保证两个客户端不会使用相同的地址)_*
-4. 分别单击两个窗口的"链接客户端按钮"，绑定聊天窗口与客户端。而客户端在启动时会自动链接步骤1中的服务器，可以观察服务器的反应来判断链接是否完成。
-5. 接下来就可以使用发送按钮进行聊天了
+（项目三，简单文件程序）
+1. 在New_server和New_client根目录下，创建client_data和server_data文件夹，server_data文件夹中放入user_sheet.csv 按照用户名,密码的格式存放信息，最好再根据用户名在两个数据库中创建与用户名相同的文件夹。
+2. 任意顺序启动New_server和New_client
+3. 主要的操作在client中完成 尝试键入help获取提示
 
 ####Tips:
-1. 服务器是按照类似洪泛的规则转发从客户端发来的消息的，但当只有一个客户端链接时，将是个回音壁服务器。
+1. 聊天功能从项目二一脉相承。
 2. 服务器与客户端是由C++构建的，采用的select机制完成。中间的链接是TCP链接。
    ```
    server(c++) ┳━━━ client(c++) ┳━━━ GUI(py)
                ┗━━━ client(c++) ┗━━━ GUI(py)
                 TCP            TCP/UDP
    ```
-3. 因为是双人聊天 所以昵称部分没有深入去研究如何完成，在项目五中会实现
-
+3. 可以通过修改my_generic_definition.h中的部分常量来达到自己想要的实验效果，当然要记得先编译。具体每个常量产生的作用在该文件注释中会有提到。
+4. 可以通过修改server_source.h和client_source.h中的DEBUG_LEVEL宏定义来观察更多的调试信息
 ## Resources
 
 Add links to external resources for this project, such as CI server, bug tracker, etc.

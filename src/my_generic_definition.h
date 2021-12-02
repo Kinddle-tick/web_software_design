@@ -22,26 +22,29 @@
 #include <cstdlib>
 //#include <sys/time.h>
 
-const int kUsernameLength =30;
-const int kHeaderSize = 20;
-const int kBufferSize = 1004;
-const int kServerPort = 11294;
+const int kUsernameLength =30;  //最大用户名长度,不大于kBufferSzie
+const int kHeaderSize = 20;     //每个包的头部长度，不小于20
+const int kBufferSize = 1004;   //每个包数据部分的长度，不小于kUsername
+const int kServerPort = 11294;  //服务器的端口号
 const int kUserPathMaxLength = (512 - kUsernameLength - sizeof(unsigned int));
-
-const int kGenericErrorProb = 100; //debug--第一次发送必定出错，用定时器发送必定成功
-const int kTimingErrorProb = 0;
-const int kGenericAckProb = 20; //ack确认帧的丢包概率，这个万万不要超过一百。否则一次完整的会话将一直无法结束。
-
+                                //用户发送路径的最大长度，自适应
+const int kGenericErrorProb = 100;  //除了ack以外的报文，第一次发送时丢包的概率
+const int kTimingErrorProb = 0;     //计时器重传时丢包的概率
+const int kGenericAckProb = 20;     //ack报文的丢包概率，这个一般不要超过一百。否则一次完整的会话将难以结束，但不代表不可以试试，因为做过相关的预防了。
+                                    //（指ack报文没有超时重传机制，仅由Fin报文触发，fin报文只重传三次）
+/*几种组合:
+ * kGenericErrorProb = 100，kTimingErrorProb = 0，kGenericAckProb = 20。
+ * debug--第一次发送必定出错，用定时器发送必定成功,能够最大限度的调试重传机制是否完备
+ *
+ * kGenericErrorProb = kTimingErrorProb = kGenericAckProb = N<100
+ * 最能模拟现实信道的方案
+ *
+ * */
 const double kGenericTimeInterval = 0.5;
 
 typedef int SocketFileDescriptor;
 typedef int FileDescriptor;
 typedef char UserNameString[kUsernameLength];
-
-//#define kHeaderSize 20
-//#define kBufferSize 1004
-//#define kServerPort 11290
-//#define kUserPathMaxLength (512- kUsernameLength - sizeof(unsigned int))
 
 enum State : char {
     kOffline = 0,//既可以标志客户端自身 也可以作为服务端标记客户端的凭据
