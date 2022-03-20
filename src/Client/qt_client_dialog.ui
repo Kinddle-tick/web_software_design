@@ -1,0 +1,455 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>QtClientDialog::QtClientDialog</class>
+ <widget class="QDialog" name="QtClientDialog::QtClientDialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>576</width>
+    <height>479</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>QtClientDialog</string>
+  </property>
+  <property name="styleSheet">
+   <string notr="true">background-color: #c2d0de;
+background-color: qlineargradient(spread:pad, x1:0, y1:0, x2:0, y2:1, stop:0 rgba(194,208,222, 255), stop:1 rgba(255, 255, 255, 0));</string>
+  </property>
+  <layout class="QGridLayout" name="gridLayout">
+   <item row="0" column="0">
+    <widget class="QSplitter" name="splitter_2">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <widget class="QSplitter" name="splitter">
+      <property name="orientation">
+       <enum>Qt::Vertical</enum>
+      </property>
+      <widget class="QTextBrowser" name="DisplayEdit">
+       <property name="enabled">
+        <bool>true</bool>
+       </property>
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="MinimumExpanding">
+         <horstretch>0</horstretch>
+         <verstretch>1</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="contextMenuPolicy">
+        <enum>Qt::NoContextMenu</enum>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: #FFFFFF;
+color:#000000;</string>
+       </property>
+       <property name="html">
+        <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
+&lt;html&gt;&lt;head&gt;&lt;meta name=&quot;qrichtext&quot; content=&quot;1&quot; /&gt;&lt;style type=&quot;text/css&quot;&gt;
+p, li { white-space: pre-wrap; }
+&lt;/style&gt;&lt;/head&gt;&lt;body style=&quot; font-family:'.AppleSystemUIFont'; font-size:13pt; font-weight:400; font-style:normal;&quot;&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; color:#0433ff;&quot;&gt;xiaoming:&lt;/span&gt;&lt;/p&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; color:#000000;&quot;&gt;早上好，吃了吗&lt;/span&gt;&lt;/p&gt;
+&lt;p align=&quot;right&quot; style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; color:#aa7942;&quot;&gt;xiaohong(you):&lt;/span&gt;&lt;/p&gt;
+&lt;p align=&quot;right&quot; style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;&lt;span style=&quot; color:#000000;&quot;&gt;吃了吃了。&lt;/span&gt;&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+       </property>
+      </widget>
+      <widget class="QPlainTextEdit" name="InputEdit">
+       <property name="sizePolicy">
+        <sizepolicy hsizetype="Expanding" vsizetype="Maximum">
+         <horstretch>0</horstretch>
+         <verstretch>1</verstretch>
+        </sizepolicy>
+       </property>
+       <property name="maximumSize">
+        <size>
+         <width>16777215</width>
+         <height>60</height>
+        </size>
+       </property>
+       <property name="baseSize">
+        <size>
+         <width>0</width>
+         <height>30</height>
+        </size>
+       </property>
+       <property name="styleSheet">
+        <string notr="true">background-color: #FFFFFF;
+color:#000000;</string>
+       </property>
+       <property name="plainText">
+        <string/>
+       </property>
+      </widget>
+     </widget>
+     <widget class="QWidget" name="layoutWidget">
+      <layout class="QHBoxLayout" name="ButtonGroup">
+       <item>
+        <spacer name="horizontalSpacer">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>40</width>
+           <height>20</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+       <item>
+        <widget class="QPushButton" name="ButtonFile">
+         <property name="styleSheet">
+          <string notr="true">background-color: #BBDEFB;
+color:#212121;
+border:2px groove gray;
+border-radius:6px;
+padding:5px 22px;</string>
+         </property>
+         <property name="text">
+          <string>文件</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="ButtonSend">
+         <property name="styleSheet">
+          <string notr="true">background-color: #BBDEFB;
+color:#212121;
+border:2px groove gray;
+border-radius:6px;
+padding:5px 22px;</string>
+         </property>
+         <property name="text">
+          <string>发送</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="ButtonCancle">
+         <property name="styleSheet">
+          <string notr="true">background-color: #BBDEFB;
+color:#212121;
+border:2px groove gray;
+border-radius:6px;
+padding:5px 22px;</string>
+         </property>
+         <property name="text">
+          <string>取消</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </widget>
+    </widget>
+   </item>
+   <item row="0" column="1">
+    <widget class="QSplitter" name="splitter_3">
+     <property name="orientation">
+      <enum>Qt::Vertical</enum>
+     </property>
+     <widget class="QWidget" name="layoutWidget">
+      <layout class="QVBoxLayout" name="verticalLayout">
+       <item>
+        <widget class="QSplitter" name="UserListGroup">
+         <property name="orientation">
+          <enum>Qt::Vertical</enum>
+         </property>
+         <widget class="QLabel" name="label_5">
+          <property name="text">
+           <string>在线用户</string>
+          </property>
+         </widget>
+         <widget class="QListWidget" name="ClientListWidget">
+          <property name="styleSheet">
+           <string notr="true">background-color:#f3f5ec;
+color: rgb(0, 0, 0);</string>
+          </property>
+          <item>
+           <property name="text">
+            <string>离线中...</string>
+           </property>
+           <property name="background">
+            <brush brushstyle="NoBrush">
+             <color alpha="255">
+              <red>108</red>
+              <green>255</green>
+              <blue>145</blue>
+             </color>
+            </brush>
+           </property>
+          </item>
+         </widget>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="UserState">
+         <item>
+          <widget class="QLabel" name="label_6">
+           <property name="styleSheet">
+            <string notr="true"/>
+           </property>
+           <property name="text">
+            <string>在线状态:</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="LabelUserState">
+           <property name="styleSheet">
+            <string notr="true">background-color: rgb(245,245,245);\ncolor:rgb(0,0,0);</string>
+           </property>
+           <property name="text">
+            <string>离线中</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="layoutWidget">
+      <layout class="QVBoxLayout" name="verticalLayout_2">
+       <item>
+        <widget class="QSplitter" name="IP">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <widget class="QLabel" name="label_3">
+          <property name="text">
+           <string>IP地址</string>
+          </property>
+          <property name="buddy">
+           <cstring>IPEdit</cstring>
+          </property>
+         </widget>
+         <widget class="QLineEdit" name="IPEdit">
+          <property name="styleSheet">
+           <string notr="true">background-color: rgb(245,245,245);
+color:rgb(0,0,0);</string>
+          </property>
+          <property name="text">
+           <string>ad</string>
+          </property>
+         </widget>
+        </widget>
+       </item>
+       <item>
+        <widget class="QSplitter" name="Port">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <widget class="QLabel" name="label_4">
+          <property name="text">
+           <string>端口号</string>
+          </property>
+          <property name="buddy">
+           <cstring>PortEdit</cstring>
+          </property>
+         </widget>
+         <widget class="QLineEdit" name="PortEdit">
+          <property name="styleSheet">
+           <string notr="true">background-color: rgb(245,245,245);
+color:rgb(0,0,0);</string>
+          </property>
+         </widget>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="ButtonGroup2">
+         <item>
+          <spacer name="horizontalSpacer_2">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="ButtonLink">
+           <property name="layoutDirection">
+            <enum>Qt::LeftToRight</enum>
+           </property>
+           <property name="styleSheet">
+            <string notr="true">background-color: #C5D1DF;
+color:#8b8b8b;
+border:2px groove gray;
+border-radius:6px;
+padding:5px 22px;</string>
+           </property>
+           <property name="text">
+            <string>链接</string>
+           </property>
+           <property name="checkable">
+            <bool>false</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="ButtonShutdown">
+           <property name="styleSheet">
+            <string notr="true">background-color: #BBDEFB;
+color:#212121;
+border:2px groove gray;
+border-radius:6px;
+padding:5px 22px;</string>
+           </property>
+           <property name="text">
+            <string>断开</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QWidget" name="layoutWidget">
+      <layout class="QVBoxLayout" name="verticalLayout_3">
+       <item>
+        <widget class="QSplitter" name="Username">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <widget class="QLabel" name="label">
+          <property name="text">
+           <string>用户名</string>
+          </property>
+          <property name="buddy">
+           <cstring>UsernameEdit</cstring>
+          </property>
+         </widget>
+         <widget class="QLineEdit" name="UsernameEdit">
+          <property name="styleSheet">
+           <string notr="true">background-color: rgb(245,245,245);
+color:rgb(0,0,0);</string>
+          </property>
+         </widget>
+        </widget>
+       </item>
+       <item>
+        <widget class="QSplitter" name="Password">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <widget class="QLabel" name="label_2">
+          <property name="text">
+           <string>密码</string>
+          </property>
+          <property name="buddy">
+           <cstring>PasswordEdit</cstring>
+          </property>
+         </widget>
+         <widget class="QLineEdit" name="PasswordEdit">
+          <property name="styleSheet">
+           <string notr="true">background-color: rgb(245,245,245);
+color:rgb(0,0,0);</string>
+          </property>
+          <property name="echoMode">
+           <enum>QLineEdit::Password</enum>
+          </property>
+         </widget>
+        </widget>
+       </item>
+       <item>
+        <layout class="QHBoxLayout" name="ButtonGroup2_2">
+         <item>
+          <spacer name="horizontalSpacer_3">
+           <property name="orientation">
+            <enum>Qt::Horizontal</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>40</width>
+             <height>20</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+         <item>
+          <widget class="QPushButton" name="ButtonLogin">
+           <property name="styleSheet">
+            <string notr="true">background-color: #BBDEFB;
+color:#212121;
+border:2px groove gray;
+border-radius:6px;
+padding:5px 22px;</string>
+           </property>
+           <property name="text">
+            <string>登录</string>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QPushButton" name="ButtonRegister">
+           <property name="styleSheet">
+            <string notr="true">background-color: #BBDEFB;
+color:#212121;
+border:2px groove gray;
+border-radius:6px;
+padding:5px 22px;</string>
+           </property>
+           <property name="text">
+            <string>注册</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </item>
+      </layout>
+     </widget>
+     <widget class="QTextBrowser" name="HintBrowser">
+      <property name="sizePolicy">
+       <sizepolicy hsizetype="Expanding" vsizetype="Maximum">
+        <horstretch>0</horstretch>
+        <verstretch>0</verstretch>
+       </sizepolicy>
+      </property>
+      <property name="minimumSize">
+       <size>
+        <width>0</width>
+        <height>40</height>
+       </size>
+      </property>
+      <property name="styleSheet">
+       <string notr="true">color:rgb(64,65,1);
+background-color: rgb(243,245,236);</string>
+      </property>
+      <property name="html">
+       <string>&lt;!DOCTYPE HTML PUBLIC &quot;-//W3C//DTD HTML 4.0//EN&quot; &quot;http://www.w3.org/TR/REC-html40/strict.dtd&quot;&gt;
+&lt;html&gt;&lt;head&gt;&lt;meta name=&quot;qrichtext&quot; content=&quot;1&quot; /&gt;&lt;style type=&quot;text/css&quot;&gt;
+p, li { white-space: pre-wrap; }
+&lt;/style&gt;&lt;/head&gt;&lt;body style=&quot; font-family:'.AppleSystemUIFont'; font-size:13pt; font-weight:400; font-style:normal;&quot;&gt;
+&lt;p style=&quot; margin-top:0px; margin-bottom:0px; margin-left:0px; margin-right:0px; -qt-block-indent:0; text-indent:0px;&quot;&gt;请登录...&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+      </property>
+     </widget>
+    </widget>
+   </item>
+  </layout>
+ </widget>
+ <tabstops>
+  <tabstop>IPEdit</tabstop>
+  <tabstop>PortEdit</tabstop>
+  <tabstop>UsernameEdit</tabstop>
+  <tabstop>PasswordEdit</tabstop>
+  <tabstop>ButtonLink</tabstop>
+  <tabstop>ButtonShutdown</tabstop>
+  <tabstop>ButtonLogin</tabstop>
+  <tabstop>ButtonRegister</tabstop>
+  <tabstop>InputEdit</tabstop>
+  <tabstop>ButtonSend</tabstop>
+  <tabstop>ButtonCancle</tabstop>
+  <tabstop>HintBrowser</tabstop>
+  <tabstop>ClientListWidget</tabstop>
+  <tabstop>DisplayEdit</tabstop>
+ </tabstops>
+ <resources>
+  <include location="D:/learn/Internet Application Design code/TeamCode/lmlui/bgp.qrc"/>
+ </resources>
+ <connections/>
+</ui>

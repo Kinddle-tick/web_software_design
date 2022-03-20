@@ -1,0 +1,9 @@
+<!DOCTYPE RCC>
+<RCC version="1.0">
+    <qresource>
+        <file>icon/file.png</file>
+        <file>icon/folder.png</file>
+        <file>icon/tree_close.png</file>
+        <file>icon/tree_open.png</file>
+    </qresource>
+</RCC>
