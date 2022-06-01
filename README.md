@@ -25,7 +25,7 @@ What things you need to install the software and how to install them.
 
 ## Deployment
 （项目三，简单文件程序）
-1. 在New_server和New_client根目录下，创建client_data和server_data文件夹，server_data文件夹中放入user_sheet.csv 按照用户名,密码的格式存放信息，最好再根据用户名在两个数据库中创建与用户名相同的文件夹。
+1. 在New_server(程序)和New_client根目录下，创建client_data和server_data文件夹，server_data文件夹中放入user_sheet.csv 按照用户名,密码的格式存放信息，再根据用户名在两个数据库中创建与用户名相同的文件夹。
 2. 任意顺序启动New_server和New_client
 3. 主要的操作在client中完成 尝试键入help获取提示
 

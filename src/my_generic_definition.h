@@ -49,7 +49,7 @@ typedef char UserNameString[kUsernameLength];
 
 enum State : char {
     kOffline = 0,//既可以标志客户端自身 也可以作为服务端标记客户端的凭据
-    kLoginTry,
+    kHalfLink,
     kOnline,
 
     kChapChallenging,

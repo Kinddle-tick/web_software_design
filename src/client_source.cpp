@@ -502,9 +502,10 @@ int ActionConnectToServer(){
         {
             max_fd = conn_client_fd;
         }
-        self_data->state = kLoginTry;
+        self_data->state = kHalfLink;
         return 0;
-    } else {
+    }
+    else {
         self_data->state = kOffline;
         return -1;
     }
@@ -532,7 +533,7 @@ int ActionControlLogin(){
         }
         //endregion
 
-        self_data->state = kLoginTry;
+        self_data->state = kHalfLink;
         return 0;
     } else{
         cout<< "can not send <login> packet to server in state <kOffline>" <<endl;
@@ -960,7 +961,7 @@ int ActionFileEndReceived(const char* received_packet_total){
     return -1;
 }
 
-//默认洪泛了似乎
+//默认洪泛了
 int ActionSendMessageToServer(const char* message,const char* username=""){
     if(self_data->state == kOnline) {
         char send_packet_total[kHeaderSize + kBufferSize]={0};
@@ -1075,7 +1076,6 @@ bool TimerSession::TimerDisable() {
 State TimerSession::get_timer_state_(){
     return timer_state_;
 }
-
 
 TimerRetranslationSession::TimerRetranslationSession(double_t timing_interval, uint8_t timer_id, SocketFileDescriptor client_fd,
                                                      const char *packet_cache, size_t packet_length):

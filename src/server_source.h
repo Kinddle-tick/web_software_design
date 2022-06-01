@@ -107,16 +107,22 @@ unsigned int ActionControlUnregistered(const char *,ClientSession *);
 int ActionControlLogin(const char*, ClientSession*);
 int ActionControlLsResponse(const char*, ClientSession*);
 
+
 int ActionFileRequestSend(const char*,ClientSession*);
+
 int ActionFileResponseSend(const char*, ClientSession*);
 int ActionFileResponseReceive(const char*,ClientSession*);
+
 int ActionFileTranslatingSend(const char *, FileSession *, ClientSession *);
 int ActionFileTransportingReceived(const char*,ClientSession*);
+
 int ActionFileAckSend(const char*, ClientSession*,ssize_t =0);
 int ActionFileAckReceived(const char*, ClientSession*);
+
 int ActionFileErrorSend(const char*, ClientSession*);
 int ActionFileEndSend(const char*, ClientSession*);
 int ActionFileEndReceived(const char*, ClientSession*);
+
 
 int ActionMessageProcessing(const char *, ClientSession *);
 

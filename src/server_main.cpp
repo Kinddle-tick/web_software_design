@@ -208,7 +208,8 @@ int main(int argc,char **argv){
                 }
             }
 
-        } else {
+        }
+        else {
             perror("select failure\n");
             continue;
         }
